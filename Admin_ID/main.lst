@@ -1,0 +1,2341 @@
+   1               		.file	"main.c"
+   2               	__SP_H__ = 0x3e
+   3               	__SP_L__ = 0x3d
+   4               	__SREG__ = 0x3f
+   5               	__tmp_reg__ = 0
+   6               	__zero_reg__ = 1
+   7               		.text
+   8               	.Ltext0:
+   9               		.cfi_sections	.debug_frame
+  10               	.global	initSPI
+  12               	initSPI:
+  13               	.LFB12:
+  14               		.file 1 "main.c"
+   1:main.c        **** #include <avr/io.h>
+   2:main.c        **** #include <util/delay.h>
+   3:main.c        **** #include <avr/eeprom.h>
+   4:main.c        **** #include <string.h>
+   5:main.c        **** #include <stdlib.h>
+   6:main.c        **** #include <stdio.h>  // Added for sprintf
+   7:main.c        **** 
+   8:main.c        **** // Define LCD I2C address (for example, 0x27, but this might vary)
+   9:main.c        **** #define LCD_ADDR 0x27
+  10:main.c        **** 
+  11:main.c        **** // Pins for the LEDs, debug, and Buzzer
+  12:main.c        **** #define LED_PIN_Reg PD3  	// LED connected to PD3
+  13:main.c        **** #define LED_PIN_Vote PD5 	// LED connected to PD5
+  14:main.c        **** #define LED_PIN_RR PD6		// LED connected to PD6
+  15:main.c        **** #define Buzzer_PIN PD7		// Buzzer connected to PD7
+  16:main.c        **** #define DEBUG_PIN PD4
+  17:main.c        **** 
+  18:main.c        **** // Pins for buttons
+  19:main.c        **** #define Button_PIN_A PC0	// Button for vote A
+  20:main.c        **** #define Button_PIN_B PC1	// Button for vote B
+  21:main.c        **** #define Button_PIN_C PC2	// Button for vote C
+  22:main.c        **** #define Button_PIN_D PC3	// Button for vote D
+  23:main.c        **** #define Button_PIN_Reg PB0	// Button for register
+  24:main.c        **** #define Button_PIN_St PB1	// Button for start
+  25:main.c        **** #define Button_PIN_Result PB6	// Button for result
+  26:main.c        **** #define Button_PIN_Reset PB7	// Button for reset
+  27:main.c        **** 
+  28:main.c        **** #define MAX_LEN 16
+  29:main.c        **** #define SCROLL_DELAY 200 // Adjust scroll delay for smoothness
+  30:main.c        **** 
+  31:main.c        **** // Status codes for RFID
+  32:main.c        **** #define MI_OK                 0
+  33:main.c        **** #define MI_NOTAGERR           1
+  34:main.c        **** #define MI_ERR                2
+  35:main.c        **** 
+  36:main.c        **** // Hardcoded Admin ID (example placeholder)
+  37:main.c        **** uint8_t adminID[5] = {0xDE, 0xAD, 0xBE, 0xEF, 0x01};
+  38:main.c        **** 
+  39:main.c        **** // EEPROM storage for user IDs
+  40:main.c        **** uint8_t userCount EEMEM = 0;
+  41:main.c        **** uint8_t storedIDs[20][5] EEMEM; // Can store up to 20 IDs
+  42:main.c        **** 
+  43:main.c        **** // Function prototypes
+  44:main.c        **** void initSPI(void);
+  45:main.c        **** void SPI_send(char data);
+  46:main.c        **** char SPI_receive(void);
+  47:main.c        **** void MFRC522_init(void);
+  48:main.c        **** void MFRC522_reset(void);
+  49:main.c        **** void MFRC522_write(uint8_t addr, uint8_t val);
+  50:main.c        **** uint8_t MFRC522_read(uint8_t addr);
+  51:main.c        **** void MFRC522_antennaOn(void);
+  52:main.c        **** uint8_t MFRC522_request(uint8_t reqMode, uint8_t *TagType);
+  53:main.c        **** uint8_t MFRC522_anticoll(uint8_t *serNum);
+  54:main.c        **** uint8_t MFRC522_toCard(uint8_t command, uint8_t *sendData, uint8_t sendLen, uint8_t *backData, uint
+  55:main.c        **** void MFRC522_clearBitMask(uint8_t reg, uint8_t mask);
+  56:main.c        **** void MFRC522_setBitMask(uint8_t reg, uint8_t mask);
+  57:main.c        **** void i2c_init(void);
+  58:main.c        **** void i2c_start(uint8_t address);
+  59:main.c        **** void i2c_stop(void);
+  60:main.c        **** void i2c_write(uint8_t data);
+  61:main.c        **** void LCD_Init(void);
+  62:main.c        **** void LCD_SendCommand(uint8_t cmd);
+  63:main.c        **** void LCD_SendData(uint8_t data);
+  64:main.c        **** void LCD_Print(char *str);
+  65:main.c        **** void LCD_SetPosition(uint8_t row, uint8_t col);
+  66:main.c        **** void LCD_Clear(void);
+  67:main.c        **** void displayUID(uint8_t *uid);
+  68:main.c        **** 
+  69:main.c        **** // Function to display a UID on the LCD
+  70:main.c        **** void displayUID(uint8_t *uid) {
+  71:main.c        ****     char uidStr[17];  // String to hold UID
+  72:main.c        ****     sprintf(uidStr, "%02X%02X%02X%02X%02X", uid[0], uid[1], uid[2], uid[3], uid[4]); // Format UID 
+  73:main.c        ****     LCD_Clear();
+  74:main.c        ****     LCD_SetPosition(0, 0);
+  75:main.c        ****     LCD_Print("Admin UID:");
+  76:main.c        ****     LCD_SetPosition(1, 0);
+  77:main.c        ****     LCD_Print(uidStr);  // Display UID on the LCD
+  78:main.c        ****     _delay_ms(2000);    // Wait for 2 seconds
+  79:main.c        **** }
+  80:main.c        **** 
+  81:main.c        **** // Function to initialize the SPI interface
+  82:main.c        **** void initSPI(void) {
+  15               		.loc 1 82 0
+  16               		.cfi_startproc
+  17               	/* prologue: function */
+  18               	/* frame size = 0 */
+  19               	/* stack size = 0 */
+  20               	.L__stack_usage = 0
+  83:main.c        ****     DDRB = (1 << PB3) | (1 << PB5) | (1 << PB2);  // Set MOSI, SCK, and SS as output
+  21               		.loc 1 83 0
+  22 0000 8CE2      		ldi r24,lo8(44)
+  23 0002 84B9      		out 0x4,r24
+  84:main.c        ****     SPCR = (1 << SPE) | (1 << MSTR) | (1 << SPR0); // Enable SPI as Master, set clock rate
+  24               		.loc 1 84 0
+  25 0004 81E5      		ldi r24,lo8(81)
+  26 0006 8CBD      		out 0x2c,r24
+  27               	/* epilogue start */
+  85:main.c        **** }
+  28               		.loc 1 85 0
+  29 0008 0895      		ret
+  30               		.cfi_endproc
+  31               	.LFE12:
+  33               	.global	SPI_send
+  35               	SPI_send:
+  36               	.LFB13:
+  86:main.c        **** 
+  87:main.c        **** // Function to send data over SPI
+  88:main.c        **** void SPI_send(char data) {
+  37               		.loc 1 88 0
+  38               		.cfi_startproc
+  39               	.LVL0:
+  40               	/* prologue: function */
+  41               	/* frame size = 0 */
+  42               	/* stack size = 0 */
+  43               	.L__stack_usage = 0
+  89:main.c        ****     SPDR = data;
+  44               		.loc 1 89 0
+  45 000a 8EBD      		out 0x2e,r24
+  46               	.L3:
+  90:main.c        ****     while (!(SPSR & (1 << SPIF))); // Wait for transmission complete
+  47               		.loc 1 90 0 discriminator 1
+  48 000c 0DB4      		in __tmp_reg__,0x2d
+  49 000e 07FE      		sbrs __tmp_reg__,7
+  50 0010 00C0      		rjmp .L3
+  51               	/* epilogue start */
+  91:main.c        **** }
+  52               		.loc 1 91 0
+  53 0012 0895      		ret
+  54               		.cfi_endproc
+  55               	.LFE13:
+  57               	.global	SPI_receive
+  59               	SPI_receive:
+  60               	.LFB14:
+  92:main.c        **** 
+  93:main.c        **** // Function to receive data from SPI
+  94:main.c        **** char SPI_receive(void) {
+  61               		.loc 1 94 0
+  62               		.cfi_startproc
+  63               	/* prologue: function */
+  64               	/* frame size = 0 */
+  65               	/* stack size = 0 */
+  66               	.L__stack_usage = 0
+  95:main.c        ****     SPI_send(0x00);  // Send dummy data to read from slave
+  67               		.loc 1 95 0
+  68 0014 80E0      		ldi r24,0
+  69 0016 0E94 0000 		call SPI_send
+  70               	.LVL1:
+  71               	.L6:
+  96:main.c        ****     while (!(SPSR & (1 << SPIF))); // Wait for reception complete
+  72               		.loc 1 96 0 discriminator 1
+  73 001a 0DB4      		in __tmp_reg__,0x2d
+  74 001c 07FE      		sbrs __tmp_reg__,7
+  75 001e 00C0      		rjmp .L6
+  97:main.c        ****     return SPDR;
+  76               		.loc 1 97 0
+  77 0020 8EB5      		in r24,0x2e
+  78               	/* epilogue start */
+  98:main.c        **** }
+  79               		.loc 1 98 0
+  80 0022 0895      		ret
+  81               		.cfi_endproc
+  82               	.LFE14:
+  84               	.global	MFRC522_write
+  86               	MFRC522_write:
+  87               	.LFB17:
+  99:main.c        **** 
+ 100:main.c        **** // Function to initialize the RFID MFRC522 module
+ 101:main.c        **** void MFRC522_init(void) {
+ 102:main.c        ****     MFRC522_reset();
+ 103:main.c        ****     MFRC522_write(0x2A, 0x8D);  // TModeReg
+ 104:main.c        ****     MFRC522_write(0x2B, 0x3E);  // TPrescalerReg
+ 105:main.c        ****     MFRC522_write(0x2C, 30);    // TReloadRegL
+ 106:main.c        ****     MFRC522_write(0x2D, 0);     // TReloadRegH
+ 107:main.c        ****     MFRC522_write(0x15, 0x40);  // TxASKReg
+ 108:main.c        ****     MFRC522_write(0x11, 0x3D);  // ModeReg
+ 109:main.c        ****     MFRC522_antennaOn();
+ 110:main.c        **** }
+ 111:main.c        **** 
+ 112:main.c        **** // Reset the MFRC522 module
+ 113:main.c        **** void MFRC522_reset(void) {
+ 114:main.c        ****     MFRC522_write(0x01, 0x0F);  // PCD_RESETPHASE
+ 115:main.c        **** }
+ 116:main.c        **** 
+ 117:main.c        **** // Write a value to a register of MFRC522
+ 118:main.c        **** void MFRC522_write(uint8_t addr, uint8_t val) {
+  88               		.loc 1 118 0
+  89               		.cfi_startproc
+  90               	.LVL2:
+  91 0024 CF93      		push r28
+  92               	.LCFI0:
+  93               		.cfi_def_cfa_offset 3
+  94               		.cfi_offset 28, -2
+  95               	/* prologue: function */
+  96               	/* frame size = 0 */
+  97               	/* stack size = 1 */
+  98               	.L__stack_usage = 1
+  99 0026 C62F      		mov r28,r22
+ 119:main.c        ****     PORTB &= ~(1 << PB2); // Select MFRC522
+ 100               		.loc 1 119 0
+ 101 0028 2A98      		cbi 0x5,2
+ 120:main.c        ****     SPI_send((addr << 1) & 0x7E); // Send address
+ 102               		.loc 1 120 0
+ 103 002a 880F      		lsl r24
+ 104               	.LVL3:
+ 105 002c 8E77      		andi r24,lo8(126)
+ 106 002e 0E94 0000 		call SPI_send
+ 107               	.LVL4:
+ 121:main.c        ****     SPI_send(val);                // Send value
+ 108               		.loc 1 121 0
+ 109 0032 8C2F      		mov r24,r28
+ 110 0034 0E94 0000 		call SPI_send
+ 111               	.LVL5:
+ 122:main.c        ****     PORTB |= (1 << PB2);          // Deselect MFRC522
+ 112               		.loc 1 122 0
+ 113 0038 2A9A      		sbi 0x5,2
+ 114               	/* epilogue start */
+ 123:main.c        **** }
+ 115               		.loc 1 123 0
+ 116 003a CF91      		pop r28
+ 117               	.LVL6:
+ 118 003c 0895      		ret
+ 119               		.cfi_endproc
+ 120               	.LFE17:
+ 122               	.global	MFRC522_reset
+ 124               	MFRC522_reset:
+ 125               	.LFB16:
+ 113:main.c        ****     MFRC522_write(0x01, 0x0F);  // PCD_RESETPHASE
+ 126               		.loc 1 113 0
+ 127               		.cfi_startproc
+ 128               	/* prologue: function */
+ 129               	/* frame size = 0 */
+ 130               	/* stack size = 0 */
+ 131               	.L__stack_usage = 0
+ 114:main.c        **** }
+ 132               		.loc 1 114 0
+ 133 003e 6FE0      		ldi r22,lo8(15)
+ 134 0040 81E0      		ldi r24,lo8(1)
+ 135 0042 0C94 0000 		jmp MFRC522_write
+ 136               	.LVL7:
+ 137               		.cfi_endproc
+ 138               	.LFE16:
+ 140               	.global	MFRC522_read
+ 142               	MFRC522_read:
+ 143               	.LFB18:
+ 124:main.c        **** 
+ 125:main.c        **** // Read a value from a register of MFRC522
+ 126:main.c        **** uint8_t MFRC522_read(uint8_t addr) {
+ 144               		.loc 1 126 0
+ 145               		.cfi_startproc
+ 146               	.LVL8:
+ 147               	/* prologue: function */
+ 148               	/* frame size = 0 */
+ 149               	/* stack size = 0 */
+ 150               	.L__stack_usage = 0
+ 127:main.c        ****     uint8_t val;
+ 128:main.c        ****     PORTB &= ~(1 << PB2);          // Select MFRC522
+ 151               		.loc 1 128 0
+ 152 0046 2A98      		cbi 0x5,2
+ 129:main.c        ****     SPI_send(((addr << 1) & 0x7E) | 0x80);  // Send address + read command
+ 153               		.loc 1 129 0
+ 154 0048 880F      		lsl r24
+ 155               	.LVL9:
+ 156 004a 8E77      		andi r24,lo8(126)
+ 157 004c 8068      		ori r24,lo8(-128)
+ 158 004e 0E94 0000 		call SPI_send
+ 159               	.LVL10:
+ 130:main.c        ****     val = SPI_receive();           // Receive value
+ 160               		.loc 1 130 0
+ 161 0052 0E94 0000 		call SPI_receive
+ 162               	.LVL11:
+ 131:main.c        ****     PORTB |= (1 << PB2);           // Deselect MFRC522
+ 163               		.loc 1 131 0
+ 164 0056 2A9A      		sbi 0x5,2
+ 165               	/* epilogue start */
+ 132:main.c        ****     return val;
+ 133:main.c        **** }
+ 166               		.loc 1 133 0
+ 167 0058 0895      		ret
+ 168               		.cfi_endproc
+ 169               	.LFE18:
+ 171               	.global	MFRC522_antennaOn
+ 173               	MFRC522_antennaOn:
+ 174               	.LFB19:
+ 134:main.c        **** 
+ 135:main.c        **** // Turn on the antenna for MFRC522
+ 136:main.c        **** void MFRC522_antennaOn(void) {
+ 175               		.loc 1 136 0
+ 176               		.cfi_startproc
+ 177               	/* prologue: function */
+ 178               	/* frame size = 0 */
+ 179               	/* stack size = 0 */
+ 180               	.L__stack_usage = 0
+ 137:main.c        ****     uint8_t temp = MFRC522_read(0x14); // TxControlReg
+ 181               		.loc 1 137 0
+ 182 005a 84E1      		ldi r24,lo8(20)
+ 183 005c 0E94 0000 		call MFRC522_read
+ 184               	.LVL12:
+ 138:main.c        ****     if (!(temp & 0x03)) {
+ 185               		.loc 1 138 0
+ 186 0060 982F      		mov r25,r24
+ 187 0062 9370      		andi r25,lo8(3)
+ 188 0064 01F4      		brne .L11
+ 139:main.c        ****         MFRC522_write(0x14, temp | 0x03);
+ 189               		.loc 1 139 0
+ 190 0066 682F      		mov r22,r24
+ 191 0068 6360      		ori r22,lo8(3)
+ 192 006a 84E1      		ldi r24,lo8(20)
+ 193               	.LVL13:
+ 194 006c 0C94 0000 		jmp MFRC522_write
+ 195               	.LVL14:
+ 196               	.L11:
+ 197               	/* epilogue start */
+ 140:main.c        ****     }
+ 141:main.c        **** }
+ 198               		.loc 1 141 0
+ 199 0070 0895      		ret
+ 200               		.cfi_endproc
+ 201               	.LFE19:
+ 203               	.global	MFRC522_init
+ 205               	MFRC522_init:
+ 206               	.LFB15:
+ 101:main.c        ****     MFRC522_reset();
+ 207               		.loc 1 101 0
+ 208               		.cfi_startproc
+ 209               	/* prologue: function */
+ 210               	/* frame size = 0 */
+ 211               	/* stack size = 0 */
+ 212               	.L__stack_usage = 0
+ 102:main.c        ****     MFRC522_write(0x2A, 0x8D);  // TModeReg
+ 213               		.loc 1 102 0
+ 214 0072 0E94 0000 		call MFRC522_reset
+ 215               	.LVL15:
+ 103:main.c        ****     MFRC522_write(0x2B, 0x3E);  // TPrescalerReg
+ 216               		.loc 1 103 0
+ 217 0076 6DE8      		ldi r22,lo8(-115)
+ 218 0078 8AE2      		ldi r24,lo8(42)
+ 219 007a 0E94 0000 		call MFRC522_write
+ 220               	.LVL16:
+ 104:main.c        ****     MFRC522_write(0x2C, 30);    // TReloadRegL
+ 221               		.loc 1 104 0
+ 222 007e 6EE3      		ldi r22,lo8(62)
+ 223 0080 8BE2      		ldi r24,lo8(43)
+ 224 0082 0E94 0000 		call MFRC522_write
+ 225               	.LVL17:
+ 105:main.c        ****     MFRC522_write(0x2D, 0);     // TReloadRegH
+ 226               		.loc 1 105 0
+ 227 0086 6EE1      		ldi r22,lo8(30)
+ 228 0088 8CE2      		ldi r24,lo8(44)
+ 229 008a 0E94 0000 		call MFRC522_write
+ 230               	.LVL18:
+ 106:main.c        ****     MFRC522_write(0x15, 0x40);  // TxASKReg
+ 231               		.loc 1 106 0
+ 232 008e 60E0      		ldi r22,0
+ 233 0090 8DE2      		ldi r24,lo8(45)
+ 234 0092 0E94 0000 		call MFRC522_write
+ 235               	.LVL19:
+ 107:main.c        ****     MFRC522_write(0x11, 0x3D);  // ModeReg
+ 236               		.loc 1 107 0
+ 237 0096 60E4      		ldi r22,lo8(64)
+ 238 0098 85E1      		ldi r24,lo8(21)
+ 239 009a 0E94 0000 		call MFRC522_write
+ 240               	.LVL20:
+ 108:main.c        ****     MFRC522_antennaOn();
+ 241               		.loc 1 108 0
+ 242 009e 6DE3      		ldi r22,lo8(61)
+ 243 00a0 81E1      		ldi r24,lo8(17)
+ 244 00a2 0E94 0000 		call MFRC522_write
+ 245               	.LVL21:
+ 109:main.c        **** }
+ 246               		.loc 1 109 0
+ 247 00a6 0C94 0000 		jmp MFRC522_antennaOn
+ 248               	.LVL22:
+ 249               		.cfi_endproc
+ 250               	.LFE15:
+ 252               	.global	MFRC522_setBitMask
+ 254               	MFRC522_setBitMask:
+ 255               	.LFB23:
+ 142:main.c        **** 
+ 143:main.c        **** // Request a tag from the RFID reader
+ 144:main.c        **** uint8_t MFRC522_request(uint8_t reqMode, uint8_t *TagType) {
+ 145:main.c        ****     uint8_t status;
+ 146:main.c        ****     uint8_t backBits;  // The received bit count
+ 147:main.c        ****     MFRC522_write(0x0D, 0x07);  // BitFramingReg
+ 148:main.c        ****     TagType[0] = reqMode;
+ 149:main.c        ****     status = MFRC522_toCard(0x0C, TagType, 1, TagType, &backBits);  // PCD_TRANSCEIVE
+ 150:main.c        ****     if ((status != MI_OK) || (backBits != 0x10)) {
+ 151:main.c        ****         status = MI_ERR;
+ 152:main.c        ****     }
+ 153:main.c        ****     return status;
+ 154:main.c        **** }
+ 155:main.c        **** 
+ 156:main.c        **** // Anti-collision detection (get unique serial number)
+ 157:main.c        **** uint8_t MFRC522_anticoll(uint8_t *serNum) {
+ 158:main.c        ****     uint8_t status;
+ 159:main.c        ****     uint8_t i;
+ 160:main.c        ****     uint8_t serNumCheck = 0;
+ 161:main.c        ****     uint8_t unLen;
+ 162:main.c        ****     MFRC522_write(0x0D, 0x00);  // BitFramingReg
+ 163:main.c        ****     serNum[0] = 0x93;  // PICC_ANTICOLL
+ 164:main.c        ****     serNum[1] = 0x20;
+ 165:main.c        ****     status = MFRC522_toCard(0x0C, serNum, 2, serNum, &unLen);  // PCD_TRANSCEIVE
+ 166:main.c        ****     if (status == MI_OK) {
+ 167:main.c        ****         for (i = 0; i < 4; i++) {
+ 168:main.c        ****             serNumCheck ^= serNum[i];
+ 169:main.c        ****         }
+ 170:main.c        ****         if (serNumCheck != serNum[i]) {
+ 171:main.c        ****             status = MI_ERR;
+ 172:main.c        ****         }
+ 173:main.c        ****     }
+ 174:main.c        ****     return status;
+ 175:main.c        **** }
+ 176:main.c        **** 
+ 177:main.c        **** // Send command to MFRC522 and handle response
+ 178:main.c        **** uint8_t MFRC522_toCard(uint8_t command, uint8_t *sendData, uint8_t sendLen, uint8_t *backData, uint
+ 179:main.c        ****     uint8_t status = MI_ERR;
+ 180:main.c        ****     uint8_t irqEn = 0x00;
+ 181:main.c        ****     uint8_t waitIRq = 0x00;
+ 182:main.c        ****     uint8_t lastBits;
+ 183:main.c        ****     uint8_t n;
+ 184:main.c        ****     uint16_t i;  // Changed to uint16_t to avoid integer truncation warning
+ 185:main.c        **** 
+ 186:main.c        ****     switch (command) {
+ 187:main.c        ****         case 0x0E:  // PCD_AUTHENT
+ 188:main.c        ****             irqEn = 0x12;
+ 189:main.c        ****             waitIRq = 0x10;
+ 190:main.c        ****             break;
+ 191:main.c        ****         case 0x0C:  // PCD_TRANSCEIVE
+ 192:main.c        ****             irqEn = 0x77;
+ 193:main.c        ****             waitIRq = 0x30;
+ 194:main.c        ****             break;
+ 195:main.c        ****         default:
+ 196:main.c        ****             break;
+ 197:main.c        ****     }
+ 198:main.c        **** 
+ 199:main.c        ****     MFRC522_write(0x02, irqEn | 0x80); // CommIEnReg
+ 200:main.c        ****     MFRC522_clearBitMask(0x04, 0x80); // CommIrqReg
+ 201:main.c        ****     MFRC522_setBitMask(0x0A, 0x80);   // FIFOLevelReg
+ 202:main.c        **** 
+ 203:main.c        ****     MFRC522_write(0x01, 0x00);  // CommandReg
+ 204:main.c        **** 
+ 205:main.c        ****     for (i = 0; i < sendLen; i++) {
+ 206:main.c        ****         MFRC522_write(0x09, sendData[i]);  // FIFODataReg
+ 207:main.c        ****     }
+ 208:main.c        **** 
+ 209:main.c        ****     MFRC522_write(0x01, command); // CommandReg
+ 210:main.c        ****     if (command == 0x0C) {  // PCD_TRANSCEIVE
+ 211:main.c        ****         MFRC522_setBitMask(0x0D, 0x80);  // BitFramingReg
+ 212:main.c        ****     }
+ 213:main.c        **** 
+ 214:main.c        ****     i = 2000;  // Timeout counter
+ 215:main.c        ****     do {
+ 216:main.c        ****         n = MFRC522_read(0x04);  // CommIrqReg
+ 217:main.c        ****         i--;
+ 218:main.c        ****     } while ((i != 0) && !(n & 0x01) && !(n & waitIRq));
+ 219:main.c        **** 
+ 220:main.c        ****     MFRC522_clearBitMask(0x0D, 0x80);  // BitFramingReg
+ 221:main.c        **** 
+ 222:main.c        ****     if (i != 0) {
+ 223:main.c        ****         if (!(MFRC522_read(0x06) & 0x1B)) {  // ErrorReg
+ 224:main.c        ****             status = MI_OK;
+ 225:main.c        ****             if (n & irqEn & 0x01) {
+ 226:main.c        ****                 status = MI_NOTAGERR;
+ 227:main.c        ****             }
+ 228:main.c        **** 
+ 229:main.c        ****             if (command == 0x0C) {  // PCD_TRANSCEIVE
+ 230:main.c        ****                 n = MFRC522_read(0x0A);  // FIFOLevelReg
+ 231:main.c        ****                 lastBits = MFRC522_read(0x0C) & 0x07;  // ControlReg
+ 232:main.c        ****                 if (lastBits) {
+ 233:main.c        ****                     *backLen = (n - 1) * 8 + lastBits;
+ 234:main.c        ****                 } else {
+ 235:main.c        ****                     *backLen = n * 8;
+ 236:main.c        ****                 }
+ 237:main.c        **** 
+ 238:main.c        ****                 if (n == 0) {
+ 239:main.c        ****                     n = 1;
+ 240:main.c        ****                 }
+ 241:main.c        ****                 if (n > MAX_LEN) {
+ 242:main.c        ****                     n = MAX_LEN;
+ 243:main.c        ****                 }
+ 244:main.c        **** 
+ 245:main.c        ****                 for (i = 0; i < n; i++) {
+ 246:main.c        ****                     backData[i] = MFRC522_read(0x09);  // FIFODataReg
+ 247:main.c        ****                 }
+ 248:main.c        ****             }
+ 249:main.c        ****         } else {
+ 250:main.c        ****             status = MI_ERR;
+ 251:main.c        ****         }
+ 252:main.c        ****     }
+ 253:main.c        **** 
+ 254:main.c        ****     return status;
+ 255:main.c        **** }
+ 256:main.c        **** 
+ 257:main.c        **** // Set specific bits of a register
+ 258:main.c        **** void MFRC522_setBitMask(uint8_t reg, uint8_t mask) {
+ 256               		.loc 1 258 0
+ 257               		.cfi_startproc
+ 258               	.LVL23:
+ 259 00aa CF93      		push r28
+ 260               	.LCFI1:
+ 261               		.cfi_def_cfa_offset 3
+ 262               		.cfi_offset 28, -2
+ 263 00ac DF93      		push r29
+ 264               	.LCFI2:
+ 265               		.cfi_def_cfa_offset 4
+ 266               		.cfi_offset 29, -3
+ 267               	/* prologue: function */
+ 268               	/* frame size = 0 */
+ 269               	/* stack size = 2 */
+ 270               	.L__stack_usage = 2
+ 271 00ae D82F      		mov r29,r24
+ 272 00b0 C62F      		mov r28,r22
+ 259:main.c        ****     uint8_t tmp = MFRC522_read(reg);
+ 273               		.loc 1 259 0
+ 274 00b2 0E94 0000 		call MFRC522_read
+ 275               	.LVL24:
+ 260:main.c        ****     MFRC522_write(reg, tmp | mask);
+ 276               		.loc 1 260 0
+ 277 00b6 682F      		mov r22,r24
+ 278 00b8 6C2B      		or r22,r28
+ 279 00ba 8D2F      		mov r24,r29
+ 280               	.LVL25:
+ 281               	/* epilogue start */
+ 261:main.c        **** }
+ 282               		.loc 1 261 0
+ 283 00bc DF91      		pop r29
+ 284               	.LVL26:
+ 285 00be CF91      		pop r28
+ 286               	.LVL27:
+ 260:main.c        ****     MFRC522_write(reg, tmp | mask);
+ 287               		.loc 1 260 0
+ 288 00c0 0C94 0000 		jmp MFRC522_write
+ 289               	.LVL28:
+ 290               		.cfi_endproc
+ 291               	.LFE23:
+ 293               	.global	MFRC522_clearBitMask
+ 295               	MFRC522_clearBitMask:
+ 296               	.LFB24:
+ 262:main.c        **** 
+ 263:main.c        **** // Clear specific bits of a register
+ 264:main.c        **** void MFRC522_clearBitMask(uint8_t reg, uint8_t mask) {
+ 297               		.loc 1 264 0
+ 298               		.cfi_startproc
+ 299               	.LVL29:
+ 300 00c4 CF93      		push r28
+ 301               	.LCFI3:
+ 302               		.cfi_def_cfa_offset 3
+ 303               		.cfi_offset 28, -2
+ 304 00c6 DF93      		push r29
+ 305               	.LCFI4:
+ 306               		.cfi_def_cfa_offset 4
+ 307               		.cfi_offset 29, -3
+ 308               	/* prologue: function */
+ 309               	/* frame size = 0 */
+ 310               	/* stack size = 2 */
+ 311               	.L__stack_usage = 2
+ 312 00c8 D82F      		mov r29,r24
+ 313 00ca C62F      		mov r28,r22
+ 265:main.c        ****     uint8_t tmp = MFRC522_read(reg);
+ 314               		.loc 1 265 0
+ 315 00cc 0E94 0000 		call MFRC522_read
+ 316               	.LVL30:
+ 266:main.c        ****     MFRC522_write(reg, tmp & (~mask));
+ 317               		.loc 1 266 0
+ 318 00d0 C095      		com r28
+ 319               	.LVL31:
+ 320 00d2 6C2F      		mov r22,r28
+ 321 00d4 6823      		and r22,r24
+ 322 00d6 8D2F      		mov r24,r29
+ 323               	.LVL32:
+ 324               	/* epilogue start */
+ 267:main.c        **** }
+ 325               		.loc 1 267 0
+ 326 00d8 DF91      		pop r29
+ 327               	.LVL33:
+ 328 00da CF91      		pop r28
+ 329               	.LVL34:
+ 266:main.c        ****     MFRC522_write(reg, tmp & (~mask));
+ 330               		.loc 1 266 0
+ 331 00dc 0C94 0000 		jmp MFRC522_write
+ 332               	.LVL35:
+ 333               		.cfi_endproc
+ 334               	.LFE24:
+ 336               	.global	MFRC522_toCard
+ 338               	MFRC522_toCard:
+ 339               	.LFB22:
+ 178:main.c        ****     uint8_t status = MI_ERR;
+ 340               		.loc 1 178 0
+ 341               		.cfi_startproc
+ 342               	.LVL36:
+ 343 00e0 6F92      		push r6
+ 344               	.LCFI5:
+ 345               		.cfi_def_cfa_offset 3
+ 346               		.cfi_offset 6, -2
+ 347 00e2 7F92      		push r7
+ 348               	.LCFI6:
+ 349               		.cfi_def_cfa_offset 4
+ 350               		.cfi_offset 7, -3
+ 351 00e4 8F92      		push r8
+ 352               	.LCFI7:
+ 353               		.cfi_def_cfa_offset 5
+ 354               		.cfi_offset 8, -4
+ 355 00e6 9F92      		push r9
+ 356               	.LCFI8:
+ 357               		.cfi_def_cfa_offset 6
+ 358               		.cfi_offset 9, -5
+ 359 00e8 AF92      		push r10
+ 360               	.LCFI9:
+ 361               		.cfi_def_cfa_offset 7
+ 362               		.cfi_offset 10, -6
+ 363 00ea BF92      		push r11
+ 364               	.LCFI10:
+ 365               		.cfi_def_cfa_offset 8
+ 366               		.cfi_offset 11, -7
+ 367 00ec CF92      		push r12
+ 368               	.LCFI11:
+ 369               		.cfi_def_cfa_offset 9
+ 370               		.cfi_offset 12, -8
+ 371 00ee DF92      		push r13
+ 372               	.LCFI12:
+ 373               		.cfi_def_cfa_offset 10
+ 374               		.cfi_offset 13, -9
+ 375 00f0 EF92      		push r14
+ 376               	.LCFI13:
+ 377               		.cfi_def_cfa_offset 11
+ 378               		.cfi_offset 14, -10
+ 379 00f2 FF92      		push r15
+ 380               	.LCFI14:
+ 381               		.cfi_def_cfa_offset 12
+ 382               		.cfi_offset 15, -11
+ 383 00f4 0F93      		push r16
+ 384               	.LCFI15:
+ 385               		.cfi_def_cfa_offset 13
+ 386               		.cfi_offset 16, -12
+ 387 00f6 1F93      		push r17
+ 388               	.LCFI16:
+ 389               		.cfi_def_cfa_offset 14
+ 390               		.cfi_offset 17, -13
+ 391 00f8 CF93      		push r28
+ 392               	.LCFI17:
+ 393               		.cfi_def_cfa_offset 15
+ 394               		.cfi_offset 28, -14
+ 395 00fa DF93      		push r29
+ 396               	.LCFI18:
+ 397               		.cfi_def_cfa_offset 16
+ 398               		.cfi_offset 29, -15
+ 399               	/* prologue: function */
+ 400               	/* frame size = 0 */
+ 401               	/* stack size = 14 */
+ 402               	.L__stack_usage = 14
+ 403 00fc D82F      		mov r29,r24
+ 404 00fe 5B01      		movw r10,r22
+ 405 0100 642E      		mov r6,r20
+ 406 0102 7901      		movw r14,r18
+ 407 0104 6801      		movw r12,r16
+ 408               	.LVL37:
+ 193:main.c        ****             break;
+ 409               		.loc 1 193 0
+ 410 0106 90E3      		ldi r25,lo8(48)
+ 411 0108 792E      		mov r7,r25
+ 192:main.c        ****             waitIRq = 0x30;
+ 412               		.loc 1 192 0
+ 413 010a C7E7      		ldi r28,lo8(119)
+ 186:main.c        ****         case 0x0E:  // PCD_AUTHENT
+ 414               		.loc 1 186 0
+ 415 010c 8C30      		cpi r24,lo8(12)
+ 416 010e 01F0      		breq .L17
+ 189:main.c        ****             break;
+ 417               		.loc 1 189 0
+ 418 0110 20E1      		ldi r18,lo8(16)
+ 419 0112 722E      		mov r7,r18
+ 420               	.LVL38:
+ 188:main.c        ****             waitIRq = 0x10;
+ 421               		.loc 1 188 0
+ 422 0114 C2E1      		ldi r28,lo8(18)
+ 186:main.c        ****         case 0x0E:  // PCD_AUTHENT
+ 423               		.loc 1 186 0
+ 424 0116 8E30      		cpi r24,lo8(14)
+ 425 0118 01F0      		breq .L17
+ 181:main.c        ****     uint8_t lastBits;
+ 426               		.loc 1 181 0
+ 427 011a 712C      		mov r7,__zero_reg__
+ 180:main.c        ****     uint8_t waitIRq = 0x00;
+ 428               		.loc 1 180 0
+ 429 011c C0E0      		ldi r28,0
+ 430               	.L17:
+ 431               	.LVL39:
+ 199:main.c        ****     MFRC522_clearBitMask(0x04, 0x80); // CommIrqReg
+ 432               		.loc 1 199 0
+ 433 011e 6C2F      		mov r22,r28
+ 434               	.LVL40:
+ 435 0120 6068      		ori r22,lo8(-128)
+ 436 0122 82E0      		ldi r24,lo8(2)
+ 437               	.LVL41:
+ 438 0124 0E94 0000 		call MFRC522_write
+ 439               	.LVL42:
+ 200:main.c        ****     MFRC522_setBitMask(0x0A, 0x80);   // FIFOLevelReg
+ 440               		.loc 1 200 0
+ 441 0128 60E8      		ldi r22,lo8(-128)
+ 442 012a 84E0      		ldi r24,lo8(4)
+ 443 012c 0E94 0000 		call MFRC522_clearBitMask
+ 444               	.LVL43:
+ 201:main.c        **** 
+ 445               		.loc 1 201 0
+ 446 0130 60E8      		ldi r22,lo8(-128)
+ 447 0132 8AE0      		ldi r24,lo8(10)
+ 448 0134 0E94 0000 		call MFRC522_setBitMask
+ 449               	.LVL44:
+ 203:main.c        **** 
+ 450               		.loc 1 203 0
+ 451 0138 60E0      		ldi r22,0
+ 452 013a 81E0      		ldi r24,lo8(1)
+ 453 013c 0E94 0000 		call MFRC522_write
+ 454               	.LVL45:
+ 205:main.c        ****         MFRC522_write(0x09, sendData[i]);  // FIFODataReg
+ 455               		.loc 1 205 0
+ 456 0140 4501      		movw r8,r10
+ 457 0142 062D      		mov r16,r6
+ 458               	.LVL46:
+ 459 0144 10E0      		ldi r17,0
+ 460               	.LVL47:
+ 461               	.L20:
+ 205:main.c        ****         MFRC522_write(0x09, sendData[i]);  // FIFODataReg
+ 462               		.loc 1 205 0 is_stmt 0 discriminator 1
+ 463 0146 C401      		movw r24,r8
+ 464 0148 8A19      		sub r24,r10
+ 465 014a 9B09      		sbc r25,r11
+ 466 014c 8017      		cp r24,r16
+ 467 014e 9107      		cpc r25,r17
+ 468 0150 00F0      		brlo .L21
+ 209:main.c        ****     if (command == 0x0C) {  // PCD_TRANSCEIVE
+ 469               		.loc 1 209 0 is_stmt 1
+ 470 0152 6D2F      		mov r22,r29
+ 471 0154 81E0      		ldi r24,lo8(1)
+ 472 0156 0E94 0000 		call MFRC522_write
+ 473               	.LVL48:
+ 210:main.c        ****         MFRC522_setBitMask(0x0D, 0x80);  // BitFramingReg
+ 474               		.loc 1 210 0
+ 475 015a DC30      		cpi r29,lo8(12)
+ 476 015c 01F4      		brne .L22
+ 211:main.c        ****     }
+ 477               		.loc 1 211 0
+ 478 015e 60E8      		ldi r22,lo8(-128)
+ 479 0160 8DE0      		ldi r24,lo8(13)
+ 480 0162 0E94 0000 		call MFRC522_setBitMask
+ 481               	.LVL49:
+ 482               	.L22:
+ 205:main.c        ****         MFRC522_write(0x09, sendData[i]);  // FIFODataReg
+ 483               		.loc 1 205 0 discriminator 3
+ 484 0166 80ED      		ldi r24,lo8(-48)
+ 485 0168 A82E      		mov r10,r24
+ 486 016a 87E0      		ldi r24,lo8(7)
+ 487 016c B82E      		mov r11,r24
+ 488               	.LVL50:
+ 218:main.c        **** 
+ 489               		.loc 1 218 0 discriminator 3
+ 490 016e 072D      		mov r16,r7
+ 491 0170 0160      		ori r16,lo8(1)
+ 492               	.LVL51:
+ 493               	.L24:
+ 216:main.c        ****         i--;
+ 494               		.loc 1 216 0 discriminator 3
+ 495 0172 84E0      		ldi r24,lo8(4)
+ 496 0174 0E94 0000 		call MFRC522_read
+ 497               	.LVL52:
+ 498 0178 182F      		mov r17,r24
+ 499               	.LVL53:
+ 217:main.c        ****     } while ((i != 0) && !(n & 0x01) && !(n & waitIRq));
+ 500               		.loc 1 217 0 discriminator 3
+ 501 017a F1E0      		ldi r31,1
+ 502 017c AF1A      		sub r10,r31
+ 503 017e B108      		sbc r11,__zero_reg__
+ 504               	.LVL54:
+ 218:main.c        **** 
+ 505               		.loc 1 218 0 discriminator 3
+ 506 0180 01F0      		breq .L23
+ 218:main.c        **** 
+ 507               		.loc 1 218 0 is_stmt 0 discriminator 1
+ 508 0182 802F      		mov r24,r16
+ 509 0184 8123      		and r24,r17
+ 510 0186 01F0      		breq .L24
+ 511               	.L23:
+ 220:main.c        **** 
+ 512               		.loc 1 220 0 is_stmt 1
+ 513 0188 60E8      		ldi r22,lo8(-128)
+ 514 018a 8DE0      		ldi r24,lo8(13)
+ 515 018c 0E94 0000 		call MFRC522_clearBitMask
+ 516               	.LVL55:
+ 222:main.c        ****         if (!(MFRC522_read(0x06) & 0x1B)) {  // ErrorReg
+ 517               		.loc 1 222 0
+ 518 0190 AB28      		or r10,r11
+ 519 0192 01F4      		brne .L25
+ 520               	.L27:
+ 179:main.c        ****     uint8_t irqEn = 0x00;
+ 521               		.loc 1 179 0
+ 522 0194 12E0      		ldi r17,lo8(2)
+ 523               	.LVL56:
+ 524               	.L16:
+ 255:main.c        **** 
+ 525               		.loc 1 255 0
+ 526 0196 812F      		mov r24,r17
+ 527               	/* epilogue start */
+ 528 0198 DF91      		pop r29
+ 529 019a CF91      		pop r28
+ 530 019c 1F91      		pop r17
+ 531 019e 0F91      		pop r16
+ 532 01a0 FF90      		pop r15
+ 533 01a2 EF90      		pop r14
+ 534               	.LVL57:
+ 535 01a4 DF90      		pop r13
+ 536 01a6 CF90      		pop r12
+ 537 01a8 BF90      		pop r11
+ 538 01aa AF90      		pop r10
+ 539 01ac 9F90      		pop r9
+ 540 01ae 8F90      		pop r8
+ 541 01b0 7F90      		pop r7
+ 542               	.LVL58:
+ 543 01b2 6F90      		pop r6
+ 544               	.LVL59:
+ 545 01b4 0895      		ret
+ 546               	.LVL60:
+ 547               	.L21:
+ 206:main.c        ****     }
+ 548               		.loc 1 206 0 discriminator 3
+ 549 01b6 F401      		movw r30,r8
+ 550 01b8 6191      		ld r22,Z+
+ 551 01ba 4F01      		movw r8,r30
+ 552               	.LVL61:
+ 553 01bc 89E0      		ldi r24,lo8(9)
+ 554 01be 0E94 0000 		call MFRC522_write
+ 555               	.LVL62:
+ 556 01c2 00C0      		rjmp .L20
+ 557               	.LVL63:
+ 558               	.L25:
+ 223:main.c        ****             status = MI_OK;
+ 559               		.loc 1 223 0
+ 560 01c4 86E0      		ldi r24,lo8(6)
+ 561 01c6 0E94 0000 		call MFRC522_read
+ 562               	.LVL64:
+ 563 01ca 8B71      		andi r24,lo8(27)
+ 564 01cc 01F4      		brne .L27
+ 565               	.LVL65:
+ 566 01ce C170      		andi r28,lo8(1)
+ 567               	.LVL66:
+ 568 01d0 1C23      		and r17,r28
+ 569               	.LVL67:
+ 229:main.c        ****                 n = MFRC522_read(0x0A);  // FIFOLevelReg
+ 570               		.loc 1 229 0
+ 571 01d2 DC30      		cpi r29,lo8(12)
+ 572 01d4 01F4      		brne .L16
+ 230:main.c        ****                 lastBits = MFRC522_read(0x0C) & 0x07;  // ControlReg
+ 573               		.loc 1 230 0
+ 574 01d6 8AE0      		ldi r24,lo8(10)
+ 575 01d8 0E94 0000 		call MFRC522_read
+ 576               	.LVL68:
+ 577 01dc C82F      		mov r28,r24
+ 578               	.LVL69:
+ 231:main.c        ****                 if (lastBits) {
+ 579               		.loc 1 231 0
+ 580 01de 8CE0      		ldi r24,lo8(12)
+ 581               	.LVL70:
+ 582 01e0 0E94 0000 		call MFRC522_read
+ 583               	.LVL71:
+ 584 01e4 982F      		mov r25,r24
+ 585 01e6 9770      		andi r25,lo8(7)
+ 586               	.LVL72:
+ 232:main.c        ****                     *backLen = (n - 1) * 8 + lastBits;
+ 587               		.loc 1 232 0
+ 588 01e8 01F0      		breq .L28
+ 233:main.c        ****                 } else {
+ 589               		.loc 1 233 0
+ 590 01ea 8FE1      		ldi r24,lo8(31)
+ 591 01ec 8C0F      		add r24,r28
+ 592 01ee 880F      		lsl r24
+ 593 01f0 880F      		lsl r24
+ 594 01f2 880F      		lsl r24
+ 595 01f4 890F      		add r24,r25
+ 596               	.L42:
+ 235:main.c        ****                 }
+ 597               		.loc 1 235 0
+ 598 01f6 F601      		movw r30,r12
+ 599 01f8 8083      		st Z,r24
+ 238:main.c        ****                     n = 1;
+ 600               		.loc 1 238 0
+ 601 01fa CC23      		tst r28
+ 602 01fc 01F0      		breq .L35
+ 603 01fe C131      		cpi r28,lo8(17)
+ 604 0200 00F0      		brlo .L30
+ 605 0202 C0E1      		ldi r28,lo8(16)
+ 606               	.LVL73:
+ 607               	.L30:
+ 245:main.c        ****                     backData[i] = MFRC522_read(0x09);  // FIFODataReg
+ 608               		.loc 1 245 0
+ 609 0204 6701      		movw r12,r14
+ 610               	.LVL74:
+ 611 0206 D0E0      		ldi r29,0
+ 612               	.LVL75:
+ 613               	.L32:
+ 245:main.c        ****                     backData[i] = MFRC522_read(0x09);  // FIFODataReg
+ 614               		.loc 1 245 0 is_stmt 0 discriminator 1
+ 615 0208 C601      		movw r24,r12
+ 616 020a 8E19      		sub r24,r14
+ 617 020c 9F09      		sbc r25,r15
+ 618 020e 8C17      		cp r24,r28
+ 619 0210 9D07      		cpc r25,r29
+ 620 0212 00F0      		brlo .+2
+ 621 0214 00C0      		rjmp .L16
+ 246:main.c        ****                 }
+ 622               		.loc 1 246 0 is_stmt 1 discriminator 3
+ 623 0216 89E0      		ldi r24,lo8(9)
+ 624 0218 0E94 0000 		call MFRC522_read
+ 625               	.LVL76:
+ 626 021c F601      		movw r30,r12
+ 627 021e 8193      		st Z+,r24
+ 628 0220 6F01      		movw r12,r30
+ 629               	.LVL77:
+ 630 0222 00C0      		rjmp .L32
+ 631               	.LVL78:
+ 632               	.L28:
+ 235:main.c        ****                 }
+ 633               		.loc 1 235 0
+ 634 0224 8C2F      		mov r24,r28
+ 635 0226 880F      		lsl r24
+ 636 0228 880F      		lsl r24
+ 637 022a 880F      		lsl r24
+ 638 022c 00C0      		rjmp .L42
+ 639               	.L35:
+ 239:main.c        ****                 }
+ 640               		.loc 1 239 0
+ 641 022e C1E0      		ldi r28,lo8(1)
+ 642               	.LVL79:
+ 643 0230 00C0      		rjmp .L30
+ 644               		.cfi_endproc
+ 645               	.LFE22:
+ 647               	.global	MFRC522_request
+ 649               	MFRC522_request:
+ 650               	.LFB20:
+ 144:main.c        ****     uint8_t status;
+ 651               		.loc 1 144 0
+ 652               		.cfi_startproc
+ 653               	.LVL80:
+ 654 0232 EF92      		push r14
+ 655               	.LCFI19:
+ 656               		.cfi_def_cfa_offset 3
+ 657               		.cfi_offset 14, -2
+ 658 0234 FF92      		push r15
+ 659               	.LCFI20:
+ 660               		.cfi_def_cfa_offset 4
+ 661               		.cfi_offset 15, -3
+ 662 0236 0F93      		push r16
+ 663               	.LCFI21:
+ 664               		.cfi_def_cfa_offset 5
+ 665               		.cfi_offset 16, -4
+ 666 0238 1F93      		push r17
+ 667               	.LCFI22:
+ 668               		.cfi_def_cfa_offset 6
+ 669               		.cfi_offset 17, -5
+ 670 023a CF93      		push r28
+ 671               	.LCFI23:
+ 672               		.cfi_def_cfa_offset 7
+ 673               		.cfi_offset 28, -6
+ 674 023c DF93      		push r29
+ 675               	.LCFI24:
+ 676               		.cfi_def_cfa_offset 8
+ 677               		.cfi_offset 29, -7
+ 678 023e 1F92      		push __zero_reg__
+ 679               	.LCFI25:
+ 680               		.cfi_def_cfa_offset 9
+ 681 0240 CDB7      		in r28,__SP_L__
+ 682 0242 DEB7      		in r29,__SP_H__
+ 683               	.LCFI26:
+ 684               		.cfi_def_cfa_register 28
+ 685               	/* prologue: function */
+ 686               	/* frame size = 1 */
+ 687               	/* stack size = 7 */
+ 688               	.L__stack_usage = 7
+ 689 0244 182F      		mov r17,r24
+ 690 0246 7B01      		movw r14,r22
+ 147:main.c        ****     TagType[0] = reqMode;
+ 691               		.loc 1 147 0
+ 692 0248 67E0      		ldi r22,lo8(7)
+ 693               	.LVL81:
+ 694 024a 8DE0      		ldi r24,lo8(13)
+ 695               	.LVL82:
+ 696 024c 0E94 0000 		call MFRC522_write
+ 697               	.LVL83:
+ 148:main.c        ****     status = MFRC522_toCard(0x0C, TagType, 1, TagType, &backBits);  // PCD_TRANSCEIVE
+ 698               		.loc 1 148 0
+ 699 0250 F701      		movw r30,r14
+ 700 0252 1083      		st Z,r17
+ 149:main.c        ****     if ((status != MI_OK) || (backBits != 0x10)) {
+ 701               		.loc 1 149 0
+ 702 0254 8E01      		movw r16,r28
+ 703 0256 0F5F      		subi r16,-1
+ 704 0258 1F4F      		sbci r17,-1
+ 705 025a 9701      		movw r18,r14
+ 706 025c 41E0      		ldi r20,lo8(1)
+ 707 025e B701      		movw r22,r14
+ 708 0260 8CE0      		ldi r24,lo8(12)
+ 709 0262 0E94 0000 		call MFRC522_toCard
+ 710               	.LVL84:
+ 150:main.c        ****         status = MI_ERR;
+ 711               		.loc 1 150 0
+ 712 0266 8111      		cpse r24,__zero_reg__
+ 713 0268 00C0      		rjmp .L46
+ 150:main.c        ****         status = MI_ERR;
+ 714               		.loc 1 150 0 is_stmt 0 discriminator 1
+ 715 026a 9981      		ldd r25,Y+1
+ 716 026c 9031      		cpi r25,lo8(16)
+ 717 026e 01F0      		breq .L43
+ 718               	.L46:
+ 151:main.c        ****     }
+ 719               		.loc 1 151 0 is_stmt 1
+ 720 0270 82E0      		ldi r24,lo8(2)
+ 721               	.LVL85:
+ 722               	.L43:
+ 723               	/* epilogue start */
+ 154:main.c        **** 
+ 724               		.loc 1 154 0
+ 725 0272 0F90      		pop __tmp_reg__
+ 726 0274 DF91      		pop r29
+ 727 0276 CF91      		pop r28
+ 728 0278 1F91      		pop r17
+ 729               	.LVL86:
+ 730 027a 0F91      		pop r16
+ 731 027c FF90      		pop r15
+ 732 027e EF90      		pop r14
+ 733               	.LVL87:
+ 734 0280 0895      		ret
+ 735               		.cfi_endproc
+ 736               	.LFE20:
+ 738               	.global	MFRC522_anticoll
+ 740               	MFRC522_anticoll:
+ 741               	.LFB21:
+ 157:main.c        ****     uint8_t status;
+ 742               		.loc 1 157 0
+ 743               		.cfi_startproc
+ 744               	.LVL88:
+ 745 0282 EF92      		push r14
+ 746               	.LCFI27:
+ 747               		.cfi_def_cfa_offset 3
+ 748               		.cfi_offset 14, -2
+ 749 0284 FF92      		push r15
+ 750               	.LCFI28:
+ 751               		.cfi_def_cfa_offset 4
+ 752               		.cfi_offset 15, -3
+ 753 0286 0F93      		push r16
+ 754               	.LCFI29:
+ 755               		.cfi_def_cfa_offset 5
+ 756               		.cfi_offset 16, -4
+ 757 0288 1F93      		push r17
+ 758               	.LCFI30:
+ 759               		.cfi_def_cfa_offset 6
+ 760               		.cfi_offset 17, -5
+ 761 028a CF93      		push r28
+ 762               	.LCFI31:
+ 763               		.cfi_def_cfa_offset 7
+ 764               		.cfi_offset 28, -6
+ 765 028c DF93      		push r29
+ 766               	.LCFI32:
+ 767               		.cfi_def_cfa_offset 8
+ 768               		.cfi_offset 29, -7
+ 769 028e 1F92      		push __zero_reg__
+ 770               	.LCFI33:
+ 771               		.cfi_def_cfa_offset 9
+ 772 0290 CDB7      		in r28,__SP_L__
+ 773 0292 DEB7      		in r29,__SP_H__
+ 774               	.LCFI34:
+ 775               		.cfi_def_cfa_register 28
+ 776               	/* prologue: function */
+ 777               	/* frame size = 1 */
+ 778               	/* stack size = 7 */
+ 779               	.L__stack_usage = 7
+ 780 0294 7C01      		movw r14,r24
+ 781               	.LVL89:
+ 162:main.c        ****     serNum[0] = 0x93;  // PICC_ANTICOLL
+ 782               		.loc 1 162 0
+ 783 0296 60E0      		ldi r22,0
+ 784 0298 8DE0      		ldi r24,lo8(13)
+ 785               	.LVL90:
+ 786 029a 0E94 0000 		call MFRC522_write
+ 787               	.LVL91:
+ 163:main.c        ****     serNum[1] = 0x20;
+ 788               		.loc 1 163 0
+ 789 029e 83E9      		ldi r24,lo8(-109)
+ 790 02a0 F701      		movw r30,r14
+ 791 02a2 8083      		st Z,r24
+ 164:main.c        ****     status = MFRC522_toCard(0x0C, serNum, 2, serNum, &unLen);  // PCD_TRANSCEIVE
+ 792               		.loc 1 164 0
+ 793 02a4 80E2      		ldi r24,lo8(32)
+ 794 02a6 8183      		std Z+1,r24
+ 165:main.c        ****     if (status == MI_OK) {
+ 795               		.loc 1 165 0
+ 796 02a8 8E01      		movw r16,r28
+ 797 02aa 0F5F      		subi r16,-1
+ 798 02ac 1F4F      		sbci r17,-1
+ 799 02ae 9701      		movw r18,r14
+ 800 02b0 42E0      		ldi r20,lo8(2)
+ 801 02b2 B701      		movw r22,r14
+ 802 02b4 8CE0      		ldi r24,lo8(12)
+ 803 02b6 0E94 0000 		call MFRC522_toCard
+ 804               	.LVL92:
+ 166:main.c        ****         for (i = 0; i < 4; i++) {
+ 805               		.loc 1 166 0
+ 806 02ba 8111      		cpse r24,__zero_reg__
+ 807 02bc 00C0      		rjmp .L47
+ 808 02be F701      		movw r30,r14
+ 809 02c0 9701      		movw r18,r14
+ 810 02c2 2C5F      		subi r18,-4
+ 811 02c4 3F4F      		sbci r19,-1
+ 812               	.LBB28:
+ 813               	.LBB29:
+ 160:main.c        ****     uint8_t unLen;
+ 814               		.loc 1 160 0
+ 815 02c6 90E0      		ldi r25,0
+ 816               	.L49:
+ 817               	.LVL93:
+ 168:main.c        ****         }
+ 818               		.loc 1 168 0
+ 819 02c8 4191      		ld r20,Z+
+ 820               	.LVL94:
+ 821 02ca 9427      		eor r25,r20
+ 822               	.LVL95:
+ 167:main.c        ****             serNumCheck ^= serNum[i];
+ 823               		.loc 1 167 0
+ 824 02cc E217      		cp r30,r18
+ 825 02ce F307      		cpc r31,r19
+ 826 02d0 01F4      		brne .L49
+ 170:main.c        ****             status = MI_ERR;
+ 827               		.loc 1 170 0
+ 828 02d2 F701      		movw r30,r14
+ 829               	.LVL96:
+ 830 02d4 2481      		ldd r18,Z+4
+ 831 02d6 9213      		cpse r25,r18
+ 171:main.c        ****         }
+ 832               		.loc 1 171 0
+ 833 02d8 82E0      		ldi r24,lo8(2)
+ 834               	.LVL97:
+ 835               	.L47:
+ 836               	/* epilogue start */
+ 837               	.LBE29:
+ 838               	.LBE28:
+ 175:main.c        **** 
+ 839               		.loc 1 175 0
+ 840 02da 0F90      		pop __tmp_reg__
+ 841 02dc DF91      		pop r29
+ 842 02de CF91      		pop r28
+ 843 02e0 1F91      		pop r17
+ 844 02e2 0F91      		pop r16
+ 845 02e4 FF90      		pop r15
+ 846 02e6 EF90      		pop r14
+ 847               	.LVL98:
+ 848 02e8 0895      		ret
+ 849               		.cfi_endproc
+ 850               	.LFE21:
+ 852               	.global	i2c_init
+ 854               	i2c_init:
+ 855               	.LFB25:
+ 268:main.c        **** 
+ 269:main.c        **** // Function to initialize I2C
+ 270:main.c        **** void i2c_init(void) {
+ 856               		.loc 1 270 0
+ 857               		.cfi_startproc
+ 858               	/* prologue: function */
+ 859               	/* frame size = 0 */
+ 860               	/* stack size = 0 */
+ 861               	.L__stack_usage = 0
+ 271:main.c        ****     TWSR = 0x00; // Prescaler value of 1
+ 862               		.loc 1 271 0
+ 863 02ea 1092 B900 		sts 185,__zero_reg__
+ 272:main.c        ****     TWBR = ((F_CPU / 100000UL) - 16) / 2; // SCL frequency 100kHz
+ 864               		.loc 1 272 0
+ 865 02ee 88E4      		ldi r24,lo8(72)
+ 866 02f0 8093 B800 		sts 184,r24
+ 867               	/* epilogue start */
+ 273:main.c        **** }
+ 868               		.loc 1 273 0
+ 869 02f4 0895      		ret
+ 870               		.cfi_endproc
+ 871               	.LFE25:
+ 873               	.global	i2c_start
+ 875               	i2c_start:
+ 876               	.LFB26:
+ 274:main.c        **** 
+ 275:main.c        **** // Function to start I2C communication
+ 276:main.c        **** void i2c_start(uint8_t address) {
+ 877               		.loc 1 276 0
+ 878               		.cfi_startproc
+ 879               	.LVL99:
+ 880               	/* prologue: function */
+ 881               	/* frame size = 0 */
+ 882               	/* stack size = 0 */
+ 883               	.L__stack_usage = 0
+ 277:main.c        ****     TWCR = (1 << TWSTA) | (1 << TWEN) | (1 << TWINT); // Send start condition
+ 884               		.loc 1 277 0
+ 885 02f6 94EA      		ldi r25,lo8(-92)
+ 886 02f8 9093 BC00 		sts 188,r25
+ 887               	.L53:
+ 278:main.c        ****     while (!(TWCR & (1 << TWINT))); // Wait for start to be transmitted
+ 888               		.loc 1 278 0 discriminator 1
+ 889 02fc 9091 BC00 		lds r25,188
+ 890 0300 97FF      		sbrs r25,7
+ 891 0302 00C0      		rjmp .L53
+ 279:main.c        ****     TWDR = address;  // Load address
+ 892               		.loc 1 279 0
+ 893 0304 8093 BB00 		sts 187,r24
+ 280:main.c        ****     TWCR = (1 << TWEN) | (1 << TWINT); // Start transmission
+ 894               		.loc 1 280 0
+ 895 0308 84E8      		ldi r24,lo8(-124)
+ 896               	.LVL100:
+ 897 030a 8093 BC00 		sts 188,r24
+ 898               	.LVL101:
+ 899               	.L54:
+ 281:main.c        ****     while (!(TWCR & (1 << TWINT))); // Wait for end of transmission
+ 900               		.loc 1 281 0 discriminator 1
+ 901 030e 8091 BC00 		lds r24,188
+ 902 0312 87FF      		sbrs r24,7
+ 903 0314 00C0      		rjmp .L54
+ 904               	/* epilogue start */
+ 282:main.c        **** }
+ 905               		.loc 1 282 0
+ 906 0316 0895      		ret
+ 907               		.cfi_endproc
+ 908               	.LFE26:
+ 910               	.global	i2c_stop
+ 912               	i2c_stop:
+ 913               	.LFB27:
+ 283:main.c        **** 
+ 284:main.c        **** // Function to stop I2C communication
+ 285:main.c        **** void i2c_stop(void) {
+ 914               		.loc 1 285 0
+ 915               		.cfi_startproc
+ 916               	/* prologue: function */
+ 917               	/* frame size = 0 */
+ 918               	/* stack size = 0 */
+ 919               	.L__stack_usage = 0
+ 286:main.c        ****     TWCR = (1 << TWSTO) | (1 << TWEN) | (1 << TWINT);  // Send stop condition
+ 920               		.loc 1 286 0
+ 921 0318 84E9      		ldi r24,lo8(-108)
+ 922 031a 8093 BC00 		sts 188,r24
+ 923               	.L58:
+ 287:main.c        ****     while (TWCR & (1 << TWSTO));  // Wait for stop to be transmitted
+ 924               		.loc 1 287 0 discriminator 1
+ 925 031e 8091 BC00 		lds r24,188
+ 926 0322 84FD      		sbrc r24,4
+ 927 0324 00C0      		rjmp .L58
+ 928               	/* epilogue start */
+ 288:main.c        **** }
+ 929               		.loc 1 288 0
+ 930 0326 0895      		ret
+ 931               		.cfi_endproc
+ 932               	.LFE27:
+ 934               	.global	i2c_write
+ 936               	i2c_write:
+ 937               	.LFB28:
+ 289:main.c        **** 
+ 290:main.c        **** // Function to write data over I2C
+ 291:main.c        **** void i2c_write(uint8_t data) {
+ 938               		.loc 1 291 0
+ 939               		.cfi_startproc
+ 940               	.LVL102:
+ 941               	/* prologue: function */
+ 942               	/* frame size = 0 */
+ 943               	/* stack size = 0 */
+ 944               	.L__stack_usage = 0
+ 292:main.c        ****     TWDR = data;
+ 945               		.loc 1 292 0
+ 946 0328 8093 BB00 		sts 187,r24
+ 293:main.c        ****     TWCR = (1 << TWEN) | (1 << TWINT);
+ 947               		.loc 1 293 0
+ 948 032c 84E8      		ldi r24,lo8(-124)
+ 949               	.LVL103:
+ 950 032e 8093 BC00 		sts 188,r24
+ 951               	.LVL104:
+ 952               	.L61:
+ 294:main.c        ****     while (!(TWCR & (1 << TWINT))); // Wait for end of transmission
+ 953               		.loc 1 294 0 discriminator 1
+ 954 0332 8091 BC00 		lds r24,188
+ 955 0336 87FF      		sbrs r24,7
+ 956 0338 00C0      		rjmp .L61
+ 957               	/* epilogue start */
+ 295:main.c        **** }
+ 958               		.loc 1 295 0
+ 959 033a 0895      		ret
+ 960               		.cfi_endproc
+ 961               	.LFE28:
+ 963               	.global	LCD_SendCommand
+ 965               	LCD_SendCommand:
+ 966               	.LFB30:
+ 296:main.c        **** 
+ 297:main.c        **** // Function to initialize the LCD (Assuming 4-bit mode)
+ 298:main.c        **** void LCD_Init(void) {
+ 299:main.c        ****     _delay_ms(50);  // Wait for more than 40ms after VCC rises to 4.5V
+ 300:main.c        ****     LCD_SendCommand(0x03);
+ 301:main.c        ****     _delay_ms(5);
+ 302:main.c        ****     LCD_SendCommand(0x03);
+ 303:main.c        ****     _delay_us(150);
+ 304:main.c        ****     LCD_SendCommand(0x03);
+ 305:main.c        ****     LCD_SendCommand(0x02);  // Set to 4-bit mode
+ 306:main.c        ****     LCD_SendCommand(0x28);  // Function set: 4-bit, 2 lines, 5x8 dots
+ 307:main.c        ****     LCD_SendCommand(0x0C);  // Display ON, cursor OFF, blink OFF
+ 308:main.c        ****     LCD_SendCommand(0x06);  // Entry mode set: increment automatically, no shift
+ 309:main.c        ****     LCD_SendCommand(0x01);  // Clear display
+ 310:main.c        ****     _delay_ms(2);  // Delay after clearing display
+ 311:main.c        **** }
+ 312:main.c        **** 
+ 313:main.c        **** // Send a command to the LCD
+ 314:main.c        **** void LCD_SendCommand(uint8_t cmd) {
+ 967               		.loc 1 314 0
+ 968               		.cfi_startproc
+ 969               	.LVL105:
+ 970 033c 1F93      		push r17
+ 971               	.LCFI35:
+ 972               		.cfi_def_cfa_offset 3
+ 973               		.cfi_offset 17, -2
+ 974 033e CF93      		push r28
+ 975               	.LCFI36:
+ 976               		.cfi_def_cfa_offset 4
+ 977               		.cfi_offset 28, -3
+ 978 0340 DF93      		push r29
+ 979               	.LCFI37:
+ 980               		.cfi_def_cfa_offset 5
+ 981               		.cfi_offset 29, -4
+ 982               	/* prologue: function */
+ 983               	/* frame size = 0 */
+ 984               	/* stack size = 3 */
+ 985               	.L__stack_usage = 3
+ 986 0342 C82F      		mov r28,r24
+ 315:main.c        ****     i2c_start(LCD_ADDR << 1);
+ 987               		.loc 1 315 0
+ 988 0344 8EE4      		ldi r24,lo8(78)
+ 989               	.LVL106:
+ 990 0346 0E94 0000 		call i2c_start
+ 991               	.LVL107:
+ 316:main.c        ****     i2c_write((cmd & 0xF0) | 0x08);  // Send high nibble
+ 992               		.loc 1 316 0
+ 993 034a 1C2F      		mov r17,r28
+ 994 034c 107F      		andi r17,lo8(-16)
+ 995 034e D12F      		mov r29,r17
+ 996 0350 D860      		ori r29,lo8(8)
+ 997 0352 8D2F      		mov r24,r29
+ 998 0354 0E94 0000 		call i2c_write
+ 999               	.LVL108:
+ 317:main.c        ****     i2c_write((cmd & 0xF0) | 0x0C);  // Enable bit high
+ 1000               		.loc 1 317 0
+ 1001 0358 812F      		mov r24,r17
+ 1002 035a 8C60      		ori r24,lo8(12)
+ 1003 035c 0E94 0000 		call i2c_write
+ 1004               	.LVL109:
+ 318:main.c        ****     i2c_write((cmd & 0xF0) | 0x08);  // Enable bit low
+ 1005               		.loc 1 318 0
+ 1006 0360 8D2F      		mov r24,r29
+ 1007 0362 0E94 0000 		call i2c_write
+ 1008               	.LVL110:
+ 319:main.c        ****     i2c_write((cmd << 4) | 0x08);    // Send low nibble
+ 1009               		.loc 1 319 0
+ 1010 0366 80E1      		ldi r24,lo8(16)
+ 1011 0368 C89F      		mul r28,r24
+ 1012 036a E001      		movw r28,r0
+ 1013 036c 1124      		clr __zero_reg__
+ 1014               	.LVL111:
+ 1015 036e DC2F      		mov r29,r28
+ 1016 0370 D860      		ori r29,lo8(8)
+ 1017 0372 8D2F      		mov r24,r29
+ 1018 0374 0E94 0000 		call i2c_write
+ 1019               	.LVL112:
+ 320:main.c        ****     i2c_write((cmd << 4) | 0x0C);    // Enable bit high
+ 1020               		.loc 1 320 0
+ 1021 0378 8C2F      		mov r24,r28
+ 1022 037a 8C60      		ori r24,lo8(12)
+ 1023 037c 0E94 0000 		call i2c_write
+ 1024               	.LVL113:
+ 321:main.c        ****     i2c_write((cmd << 4) | 0x08);    // Enable bit low
+ 1025               		.loc 1 321 0
+ 1026 0380 8D2F      		mov r24,r29
+ 1027 0382 0E94 0000 		call i2c_write
+ 1028               	.LVL114:
+ 1029               	/* epilogue start */
+ 322:main.c        ****     i2c_stop();
+ 323:main.c        **** }
+ 1030               		.loc 1 323 0
+ 1031 0386 DF91      		pop r29
+ 1032 0388 CF91      		pop r28
+ 1033 038a 1F91      		pop r17
+ 322:main.c        ****     i2c_stop();
+ 1034               		.loc 1 322 0
+ 1035 038c 0C94 0000 		jmp i2c_stop
+ 1036               	.LVL115:
+ 1037               		.cfi_endproc
+ 1038               	.LFE30:
+ 1040               	.global	LCD_Init
+ 1042               	LCD_Init:
+ 1043               	.LFB29:
+ 298:main.c        ****     _delay_ms(50);  // Wait for more than 40ms after VCC rises to 4.5V
+ 1044               		.loc 1 298 0
+ 1045               		.cfi_startproc
+ 1046               	/* prologue: function */
+ 1047               	/* frame size = 0 */
+ 1048               	/* stack size = 0 */
+ 1049               	.L__stack_usage = 0
+ 1050               	.LVL116:
+ 1051               	.LBB30:
+ 1052               	.LBB31:
+ 1053               		.file 2 "/usr/lib/avr/include/util/delay.h"
+   1:/usr/lib/avr/include/util/delay.h **** /* Copyright (c) 2002, Marek Michalkiewicz
+   2:/usr/lib/avr/include/util/delay.h ****    Copyright (c) 2004,2005,2007 Joerg Wunsch
+   3:/usr/lib/avr/include/util/delay.h ****    Copyright (c) 2007  Florin-Viorel Petrov
+   4:/usr/lib/avr/include/util/delay.h ****    All rights reserved.
+   5:/usr/lib/avr/include/util/delay.h **** 
+   6:/usr/lib/avr/include/util/delay.h ****    Redistribution and use in source and binary forms, with or without
+   7:/usr/lib/avr/include/util/delay.h ****    modification, are permitted provided that the following conditions are met:
+   8:/usr/lib/avr/include/util/delay.h **** 
+   9:/usr/lib/avr/include/util/delay.h ****    * Redistributions of source code must retain the above copyright
+  10:/usr/lib/avr/include/util/delay.h ****      notice, this list of conditions and the following disclaimer.
+  11:/usr/lib/avr/include/util/delay.h **** 
+  12:/usr/lib/avr/include/util/delay.h ****    * Redistributions in binary form must reproduce the above copyright
+  13:/usr/lib/avr/include/util/delay.h ****      notice, this list of conditions and the following disclaimer in
+  14:/usr/lib/avr/include/util/delay.h ****      the documentation and/or other materials provided with the
+  15:/usr/lib/avr/include/util/delay.h ****      distribution.
+  16:/usr/lib/avr/include/util/delay.h **** 
+  17:/usr/lib/avr/include/util/delay.h ****    * Neither the name of the copyright holders nor the names of
+  18:/usr/lib/avr/include/util/delay.h ****      contributors may be used to endorse or promote products derived
+  19:/usr/lib/avr/include/util/delay.h ****      from this software without specific prior written permission.
+  20:/usr/lib/avr/include/util/delay.h **** 
+  21:/usr/lib/avr/include/util/delay.h ****   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  22:/usr/lib/avr/include/util/delay.h ****   AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  23:/usr/lib/avr/include/util/delay.h ****   IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  24:/usr/lib/avr/include/util/delay.h ****   ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+  25:/usr/lib/avr/include/util/delay.h ****   LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  26:/usr/lib/avr/include/util/delay.h ****   CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  27:/usr/lib/avr/include/util/delay.h ****   SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  28:/usr/lib/avr/include/util/delay.h ****   INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  29:/usr/lib/avr/include/util/delay.h ****   CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  30:/usr/lib/avr/include/util/delay.h ****   ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  31:/usr/lib/avr/include/util/delay.h ****   POSSIBILITY OF SUCH DAMAGE. */
+  32:/usr/lib/avr/include/util/delay.h **** 
+  33:/usr/lib/avr/include/util/delay.h **** /* $Id$ */
+  34:/usr/lib/avr/include/util/delay.h **** 
+  35:/usr/lib/avr/include/util/delay.h **** #ifndef _UTIL_DELAY_H_
+  36:/usr/lib/avr/include/util/delay.h **** #define _UTIL_DELAY_H_ 1
+  37:/usr/lib/avr/include/util/delay.h **** 
+  38:/usr/lib/avr/include/util/delay.h **** #ifndef __DOXYGEN__
+  39:/usr/lib/avr/include/util/delay.h **** #  ifndef __HAS_DELAY_CYCLES
+  40:/usr/lib/avr/include/util/delay.h **** #    define __HAS_DELAY_CYCLES 1
+  41:/usr/lib/avr/include/util/delay.h **** #  endif
+  42:/usr/lib/avr/include/util/delay.h **** #endif  /* __DOXYGEN__ */
+  43:/usr/lib/avr/include/util/delay.h **** 
+  44:/usr/lib/avr/include/util/delay.h **** #include <inttypes.h>
+  45:/usr/lib/avr/include/util/delay.h **** #include <util/delay_basic.h>
+  46:/usr/lib/avr/include/util/delay.h **** #include <math.h>
+  47:/usr/lib/avr/include/util/delay.h **** 
+  48:/usr/lib/avr/include/util/delay.h **** /** \file */
+  49:/usr/lib/avr/include/util/delay.h **** /** \defgroup util_delay <util/delay.h>: Convenience functions for busy-wait delay loops
+  50:/usr/lib/avr/include/util/delay.h ****     \code
+  51:/usr/lib/avr/include/util/delay.h ****     #define F_CPU 1000000UL  // 1 MHz
+  52:/usr/lib/avr/include/util/delay.h ****     //#define F_CPU 14.7456E6
+  53:/usr/lib/avr/include/util/delay.h ****     #include <util/delay.h>
+  54:/usr/lib/avr/include/util/delay.h ****     \endcode
+  55:/usr/lib/avr/include/util/delay.h **** 
+  56:/usr/lib/avr/include/util/delay.h ****     \note As an alternative method, it is possible to pass the
+  57:/usr/lib/avr/include/util/delay.h ****     F_CPU macro down to the compiler from the Makefile.
+  58:/usr/lib/avr/include/util/delay.h ****     Obviously, in that case, no \c \#define statement should be
+  59:/usr/lib/avr/include/util/delay.h ****     used.
+  60:/usr/lib/avr/include/util/delay.h **** 
+  61:/usr/lib/avr/include/util/delay.h ****     The functions in this header file are wrappers around the basic
+  62:/usr/lib/avr/include/util/delay.h ****     busy-wait functions from <util/delay_basic.h>.  They are meant as
+  63:/usr/lib/avr/include/util/delay.h ****     convenience functions where actual time values can be specified
+  64:/usr/lib/avr/include/util/delay.h ****     rather than a number of cycles to wait for.  The idea behind is
+  65:/usr/lib/avr/include/util/delay.h ****     that compile-time constant expressions will be eliminated by
+  66:/usr/lib/avr/include/util/delay.h ****     compiler optimization so floating-point expressions can be used
+  67:/usr/lib/avr/include/util/delay.h ****     to calculate the number of delay cycles needed based on the CPU
+  68:/usr/lib/avr/include/util/delay.h ****     frequency passed by the macro F_CPU.
+  69:/usr/lib/avr/include/util/delay.h **** 
+  70:/usr/lib/avr/include/util/delay.h ****     \note In order for these functions to work as intended, compiler
+  71:/usr/lib/avr/include/util/delay.h ****     optimizations <em>must</em> be enabled, and the delay time
+  72:/usr/lib/avr/include/util/delay.h ****     <em>must</em> be an expression that is a known constant at
+  73:/usr/lib/avr/include/util/delay.h ****     compile-time.  If these requirements are not met, the resulting
+  74:/usr/lib/avr/include/util/delay.h ****     delay will be much longer (and basically unpredictable), and
+  75:/usr/lib/avr/include/util/delay.h ****     applications that otherwise do not use floating-point calculations
+  76:/usr/lib/avr/include/util/delay.h ****     will experience severe code bloat by the floating-point library
+  77:/usr/lib/avr/include/util/delay.h ****     routines linked into the application.
+  78:/usr/lib/avr/include/util/delay.h **** 
+  79:/usr/lib/avr/include/util/delay.h ****     The functions available allow the specification of microsecond, and
+  80:/usr/lib/avr/include/util/delay.h ****     millisecond delays directly, using the application-supplied macro
+  81:/usr/lib/avr/include/util/delay.h ****     F_CPU as the CPU clock frequency (in Hertz).
+  82:/usr/lib/avr/include/util/delay.h **** 
+  83:/usr/lib/avr/include/util/delay.h **** */
+  84:/usr/lib/avr/include/util/delay.h **** 
+  85:/usr/lib/avr/include/util/delay.h **** #if !defined(__DOXYGEN__)
+  86:/usr/lib/avr/include/util/delay.h **** static __inline__ void _delay_us(double __us) __attribute__((__always_inline__));
+  87:/usr/lib/avr/include/util/delay.h **** static __inline__ void _delay_ms(double __ms) __attribute__((__always_inline__));
+  88:/usr/lib/avr/include/util/delay.h **** #endif
+  89:/usr/lib/avr/include/util/delay.h **** 
+  90:/usr/lib/avr/include/util/delay.h **** #ifndef F_CPU
+  91:/usr/lib/avr/include/util/delay.h **** /* prevent compiler error by supplying a default */
+  92:/usr/lib/avr/include/util/delay.h **** # warning "F_CPU not defined for <util/delay.h>"
+  93:/usr/lib/avr/include/util/delay.h **** /** \ingroup util_delay
+  94:/usr/lib/avr/include/util/delay.h ****     \def F_CPU
+  95:/usr/lib/avr/include/util/delay.h ****     \brief CPU frequency in Hz
+  96:/usr/lib/avr/include/util/delay.h **** 
+  97:/usr/lib/avr/include/util/delay.h ****     The macro F_CPU specifies the CPU frequency to be considered by
+  98:/usr/lib/avr/include/util/delay.h ****     the delay macros.  This macro is normally supplied by the
+  99:/usr/lib/avr/include/util/delay.h ****     environment (e.g. from within a project header, or the project's
+ 100:/usr/lib/avr/include/util/delay.h ****     Makefile).  The value 1 MHz here is only provided as a "vanilla"
+ 101:/usr/lib/avr/include/util/delay.h ****     fallback if no such user-provided definition could be found.
+ 102:/usr/lib/avr/include/util/delay.h **** 
+ 103:/usr/lib/avr/include/util/delay.h ****     In terms of the delay functions, the CPU frequency can be given as
+ 104:/usr/lib/avr/include/util/delay.h ****     a floating-point constant (e.g. 3.6864E6 for 3.6864 MHz).
+ 105:/usr/lib/avr/include/util/delay.h ****     However, the macros in <util/setbaud.h> require it to be an
+ 106:/usr/lib/avr/include/util/delay.h ****     integer value.
+ 107:/usr/lib/avr/include/util/delay.h ****  */
+ 108:/usr/lib/avr/include/util/delay.h **** # define F_CPU 1000000UL
+ 109:/usr/lib/avr/include/util/delay.h **** #endif
+ 110:/usr/lib/avr/include/util/delay.h **** 
+ 111:/usr/lib/avr/include/util/delay.h **** #ifndef __OPTIMIZE__
+ 112:/usr/lib/avr/include/util/delay.h **** # warning "Compiler optimizations disabled; functions from <util/delay.h> won't work as designed"
+ 113:/usr/lib/avr/include/util/delay.h **** #endif
+ 114:/usr/lib/avr/include/util/delay.h **** 
+ 115:/usr/lib/avr/include/util/delay.h **** #if __HAS_DELAY_CYCLES && defined(__OPTIMIZE__) && \
+ 116:/usr/lib/avr/include/util/delay.h ****   !defined(__DELAY_BACKWARD_COMPATIBLE__) &&	   \
+ 117:/usr/lib/avr/include/util/delay.h ****   __STDC_HOSTED__
+ 118:/usr/lib/avr/include/util/delay.h **** #  include <math.h>
+ 119:/usr/lib/avr/include/util/delay.h **** #endif
+ 120:/usr/lib/avr/include/util/delay.h **** 
+ 121:/usr/lib/avr/include/util/delay.h **** /**
+ 122:/usr/lib/avr/include/util/delay.h ****    \ingroup util_delay
+ 123:/usr/lib/avr/include/util/delay.h **** 
+ 124:/usr/lib/avr/include/util/delay.h ****    Perform a delay of \c __ms milliseconds, using _delay_loop_2().
+ 125:/usr/lib/avr/include/util/delay.h **** 
+ 126:/usr/lib/avr/include/util/delay.h ****    The macro F_CPU is supposed to be defined to a
+ 127:/usr/lib/avr/include/util/delay.h ****    constant defining the CPU clock frequency (in Hertz).
+ 128:/usr/lib/avr/include/util/delay.h **** 
+ 129:/usr/lib/avr/include/util/delay.h ****    The maximal possible delay is 262.14 ms / F_CPU in MHz.
+ 130:/usr/lib/avr/include/util/delay.h **** 
+ 131:/usr/lib/avr/include/util/delay.h ****    When the user request delay which exceed the maximum possible one,
+ 132:/usr/lib/avr/include/util/delay.h ****    _delay_ms() provides a decreased resolution functionality. In this
+ 133:/usr/lib/avr/include/util/delay.h ****    mode _delay_ms() will work with a resolution of 1/10 ms, providing
+ 134:/usr/lib/avr/include/util/delay.h ****    delays up to 6.5535 seconds (independent from CPU frequency).  The
+ 135:/usr/lib/avr/include/util/delay.h ****    user will not be informed about decreased resolution.
+ 136:/usr/lib/avr/include/util/delay.h **** 
+ 137:/usr/lib/avr/include/util/delay.h ****    If the avr-gcc toolchain has __builtin_avr_delay_cycles()
+ 138:/usr/lib/avr/include/util/delay.h ****    support, maximal possible delay is 4294967.295 ms/ F_CPU in MHz. For
+ 139:/usr/lib/avr/include/util/delay.h ****    values greater than the maximal possible delay, overflows results in
+ 140:/usr/lib/avr/include/util/delay.h ****    no delay i.e., 0ms.
+ 141:/usr/lib/avr/include/util/delay.h **** 
+ 142:/usr/lib/avr/include/util/delay.h ****    Conversion of \c __ms into clock cycles may not always result in
+ 143:/usr/lib/avr/include/util/delay.h ****    integer.  By default, the clock cycles rounded up to next
+ 144:/usr/lib/avr/include/util/delay.h ****    integer. This ensures that the user gets at least \c __ms
+ 145:/usr/lib/avr/include/util/delay.h ****    microseconds of delay.
+ 146:/usr/lib/avr/include/util/delay.h **** 
+ 147:/usr/lib/avr/include/util/delay.h ****    Alternatively, by defining the macro \c __DELAY_ROUND_DOWN__, or
+ 148:/usr/lib/avr/include/util/delay.h ****    \c __DELAY_ROUND_CLOSEST__, before including this header file, the
+ 149:/usr/lib/avr/include/util/delay.h ****    algorithm can be made to round down, or round to closest integer,
+ 150:/usr/lib/avr/include/util/delay.h ****    respectively.
+ 151:/usr/lib/avr/include/util/delay.h **** 
+ 152:/usr/lib/avr/include/util/delay.h ****    \note
+ 153:/usr/lib/avr/include/util/delay.h **** 
+ 154:/usr/lib/avr/include/util/delay.h ****    The implementation of _delay_ms() based on
+ 155:/usr/lib/avr/include/util/delay.h ****    __builtin_avr_delay_cycles() is not backward compatible with older
+ 156:/usr/lib/avr/include/util/delay.h ****    implementations.  In order to get functionality backward compatible
+ 157:/usr/lib/avr/include/util/delay.h ****    with previous versions, the macro \c "__DELAY_BACKWARD_COMPATIBLE__"
+ 158:/usr/lib/avr/include/util/delay.h ****    must be defined before including this header file. Also, the
+ 159:/usr/lib/avr/include/util/delay.h ****    backward compatible algorithm will be chosen if the code is
+ 160:/usr/lib/avr/include/util/delay.h ****    compiled in a <em>freestanding environment</em> (GCC option
+ 161:/usr/lib/avr/include/util/delay.h ****    \c -ffreestanding), as the math functions required for rounding are
+ 162:/usr/lib/avr/include/util/delay.h ****    not available to the compiler then.
+ 163:/usr/lib/avr/include/util/delay.h **** 
+ 164:/usr/lib/avr/include/util/delay.h ****  */
+ 165:/usr/lib/avr/include/util/delay.h **** void
+ 166:/usr/lib/avr/include/util/delay.h **** _delay_ms(double __ms)
+ 167:/usr/lib/avr/include/util/delay.h **** {
+ 168:/usr/lib/avr/include/util/delay.h **** 	double __tmp ;
+ 169:/usr/lib/avr/include/util/delay.h **** #if __HAS_DELAY_CYCLES && defined(__OPTIMIZE__) && \
+ 170:/usr/lib/avr/include/util/delay.h ****   !defined(__DELAY_BACKWARD_COMPATIBLE__) &&	   \
+ 171:/usr/lib/avr/include/util/delay.h ****   __STDC_HOSTED__
+ 172:/usr/lib/avr/include/util/delay.h **** 	uint32_t __ticks_dc;
+ 173:/usr/lib/avr/include/util/delay.h **** 	extern void __builtin_avr_delay_cycles(unsigned long);
+ 174:/usr/lib/avr/include/util/delay.h **** 	__tmp = ((F_CPU) / 1e3) * __ms;
+ 175:/usr/lib/avr/include/util/delay.h **** 
+ 176:/usr/lib/avr/include/util/delay.h **** 	#if defined(__DELAY_ROUND_DOWN__)
+ 177:/usr/lib/avr/include/util/delay.h **** 		__ticks_dc = (uint32_t)fabs(__tmp);
+ 178:/usr/lib/avr/include/util/delay.h **** 
+ 179:/usr/lib/avr/include/util/delay.h **** 	#elif defined(__DELAY_ROUND_CLOSEST__)
+ 180:/usr/lib/avr/include/util/delay.h **** 		__ticks_dc = (uint32_t)(fabs(__tmp)+0.5);
+ 181:/usr/lib/avr/include/util/delay.h **** 
+ 182:/usr/lib/avr/include/util/delay.h **** 	#else
+ 183:/usr/lib/avr/include/util/delay.h **** 		//round up by default
+ 184:/usr/lib/avr/include/util/delay.h **** 		__ticks_dc = (uint32_t)(ceil(fabs(__tmp)));
+ 185:/usr/lib/avr/include/util/delay.h **** 	#endif
+ 186:/usr/lib/avr/include/util/delay.h **** 
+ 187:/usr/lib/avr/include/util/delay.h **** 	__builtin_avr_delay_cycles(__ticks_dc);
+ 1054               		.loc 2 187 0
+ 1055 0390 2FEF      		ldi r18,lo8(159999)
+ 1056 0392 80E7      		ldi r24,hi8(159999)
+ 1057 0394 92E0      		ldi r25,hlo8(159999)
+ 1058 0396 2150      	1:	subi r18,1
+ 1059 0398 8040      		sbci r24,0
+ 1060 039a 9040      		sbci r25,0
+ 1061 039c 01F4      		brne 1b
+ 1062 039e 00C0      		rjmp .
+ 1063 03a0 0000      		nop
+ 1064               	.LVL117:
+ 1065               	.LBE31:
+ 1066               	.LBE30:
+ 300:main.c        ****     _delay_ms(5);
+ 1067               		.loc 1 300 0
+ 1068 03a2 83E0      		ldi r24,lo8(3)
+ 1069 03a4 0E94 0000 		call LCD_SendCommand
+ 1070               	.LVL118:
+ 1071               	.LBB32:
+ 1072               	.LBB33:
+ 1073               		.loc 2 187 0
+ 1074 03a8 8FE1      		ldi r24,lo8(19999)
+ 1075 03aa 9EE4      		ldi r25,hi8(19999)
+ 1076 03ac 0197      	1:	sbiw r24,1
+ 1077 03ae 01F4      		brne 1b
+ 1078 03b0 00C0      		rjmp .
+ 1079 03b2 0000      		nop
+ 1080               	.LVL119:
+ 1081               	.LBE33:
+ 1082               	.LBE32:
+ 302:main.c        ****     _delay_us(150);
+ 1083               		.loc 1 302 0
+ 1084 03b4 83E0      		ldi r24,lo8(3)
+ 1085 03b6 0E94 0000 		call LCD_SendCommand
+ 1086               	.LVL120:
+ 1087               	.LBB34:
+ 1088               	.LBB35:
+ 188:/usr/lib/avr/include/util/delay.h **** 
+ 189:/usr/lib/avr/include/util/delay.h **** #else
+ 190:/usr/lib/avr/include/util/delay.h **** 	uint16_t __ticks;
+ 191:/usr/lib/avr/include/util/delay.h **** 	__tmp = ((F_CPU) / 4e3) * __ms;
+ 192:/usr/lib/avr/include/util/delay.h **** 	if (__tmp < 1.0)
+ 193:/usr/lib/avr/include/util/delay.h **** 		__ticks = 1;
+ 194:/usr/lib/avr/include/util/delay.h **** 	else if (__tmp > 65535)
+ 195:/usr/lib/avr/include/util/delay.h **** 	{
+ 196:/usr/lib/avr/include/util/delay.h **** 		//	__ticks = requested delay in 1/10 ms
+ 197:/usr/lib/avr/include/util/delay.h **** 		__ticks = (uint16_t) (__ms * 10.0);
+ 198:/usr/lib/avr/include/util/delay.h **** 		while(__ticks)
+ 199:/usr/lib/avr/include/util/delay.h **** 		{
+ 200:/usr/lib/avr/include/util/delay.h **** 			// wait 1/10 ms
+ 201:/usr/lib/avr/include/util/delay.h **** 			_delay_loop_2(((F_CPU) / 4e3) / 10);
+ 202:/usr/lib/avr/include/util/delay.h **** 			__ticks --;
+ 203:/usr/lib/avr/include/util/delay.h **** 		}
+ 204:/usr/lib/avr/include/util/delay.h **** 		return;
+ 205:/usr/lib/avr/include/util/delay.h **** 	}
+ 206:/usr/lib/avr/include/util/delay.h **** 	else
+ 207:/usr/lib/avr/include/util/delay.h **** 		__ticks = (uint16_t)__tmp;
+ 208:/usr/lib/avr/include/util/delay.h **** 	_delay_loop_2(__ticks);
+ 209:/usr/lib/avr/include/util/delay.h **** #endif
+ 210:/usr/lib/avr/include/util/delay.h **** }
+ 211:/usr/lib/avr/include/util/delay.h **** 
+ 212:/usr/lib/avr/include/util/delay.h **** /**
+ 213:/usr/lib/avr/include/util/delay.h ****    \ingroup util_delay
+ 214:/usr/lib/avr/include/util/delay.h **** 
+ 215:/usr/lib/avr/include/util/delay.h ****    Perform a delay of \c __us microseconds, using _delay_loop_1().
+ 216:/usr/lib/avr/include/util/delay.h **** 
+ 217:/usr/lib/avr/include/util/delay.h ****    The macro F_CPU is supposed to be defined to a
+ 218:/usr/lib/avr/include/util/delay.h ****    constant defining the CPU clock frequency (in Hertz).
+ 219:/usr/lib/avr/include/util/delay.h **** 
+ 220:/usr/lib/avr/include/util/delay.h ****    The maximal possible delay is 768 us / F_CPU in MHz.
+ 221:/usr/lib/avr/include/util/delay.h **** 
+ 222:/usr/lib/avr/include/util/delay.h ****    If the user requests a delay greater than the maximal possible one,
+ 223:/usr/lib/avr/include/util/delay.h ****    _delay_us() will automatically call _delay_ms() instead.  The user
+ 224:/usr/lib/avr/include/util/delay.h ****    will not be informed about this case.
+ 225:/usr/lib/avr/include/util/delay.h **** 
+ 226:/usr/lib/avr/include/util/delay.h ****    If the avr-gcc toolchain has __builtin_avr_delay_cycles()
+ 227:/usr/lib/avr/include/util/delay.h ****    support, maximal possible delay is 4294967.295 us/ F_CPU in MHz. For
+ 228:/usr/lib/avr/include/util/delay.h ****    values greater than the maximal possible delay, overflow results in
+ 229:/usr/lib/avr/include/util/delay.h ****    no delay i.e., 0us.
+ 230:/usr/lib/avr/include/util/delay.h **** 
+ 231:/usr/lib/avr/include/util/delay.h ****    Conversion of \c __us into clock cycles may not always result in
+ 232:/usr/lib/avr/include/util/delay.h ****    integer.  By default, the clock cycles rounded up to next
+ 233:/usr/lib/avr/include/util/delay.h ****    integer. This ensures that the user gets at least \c __us
+ 234:/usr/lib/avr/include/util/delay.h ****    microseconds of delay.
+ 235:/usr/lib/avr/include/util/delay.h **** 
+ 236:/usr/lib/avr/include/util/delay.h ****    Alternatively, by defining the macro \c __DELAY_ROUND_DOWN__, or
+ 237:/usr/lib/avr/include/util/delay.h ****    \c __DELAY_ROUND_CLOSEST__, before including this header file, the
+ 238:/usr/lib/avr/include/util/delay.h ****    algorithm can be made to round down, or round to closest integer,
+ 239:/usr/lib/avr/include/util/delay.h ****    respectively.
+ 240:/usr/lib/avr/include/util/delay.h **** 
+ 241:/usr/lib/avr/include/util/delay.h ****    \note
+ 242:/usr/lib/avr/include/util/delay.h **** 
+ 243:/usr/lib/avr/include/util/delay.h ****    The implementation of _delay_ms() based on
+ 244:/usr/lib/avr/include/util/delay.h ****    __builtin_avr_delay_cycles() is not backward compatible with older
+ 245:/usr/lib/avr/include/util/delay.h ****    implementations.  In order to get functionality backward compatible
+ 246:/usr/lib/avr/include/util/delay.h ****    with previous versions, the macro \c __DELAY_BACKWARD_COMPATIBLE__
+ 247:/usr/lib/avr/include/util/delay.h ****    must be defined before including this header file. Also, the
+ 248:/usr/lib/avr/include/util/delay.h ****    backward compatible algorithm will be chosen if the code is
+ 249:/usr/lib/avr/include/util/delay.h ****    compiled in a <em>freestanding environment</em> (GCC option
+ 250:/usr/lib/avr/include/util/delay.h ****    \c -ffreestanding), as the math functions required for rounding are
+ 251:/usr/lib/avr/include/util/delay.h ****    not available to the compiler then.
+ 252:/usr/lib/avr/include/util/delay.h **** 
+ 253:/usr/lib/avr/include/util/delay.h ****  */
+ 254:/usr/lib/avr/include/util/delay.h **** void
+ 255:/usr/lib/avr/include/util/delay.h **** _delay_us(double __us)
+ 256:/usr/lib/avr/include/util/delay.h **** {
+ 257:/usr/lib/avr/include/util/delay.h **** 	double __tmp ;
+ 258:/usr/lib/avr/include/util/delay.h **** #if __HAS_DELAY_CYCLES && defined(__OPTIMIZE__) && \
+ 259:/usr/lib/avr/include/util/delay.h ****   !defined(__DELAY_BACKWARD_COMPATIBLE__) &&	   \
+ 260:/usr/lib/avr/include/util/delay.h ****   __STDC_HOSTED__
+ 261:/usr/lib/avr/include/util/delay.h **** 	uint32_t __ticks_dc;
+ 262:/usr/lib/avr/include/util/delay.h **** 	extern void __builtin_avr_delay_cycles(unsigned long);
+ 263:/usr/lib/avr/include/util/delay.h **** 	__tmp = ((F_CPU) / 1e6) * __us;
+ 264:/usr/lib/avr/include/util/delay.h **** 
+ 265:/usr/lib/avr/include/util/delay.h **** 	#if defined(__DELAY_ROUND_DOWN__)
+ 266:/usr/lib/avr/include/util/delay.h **** 		__ticks_dc = (uint32_t)fabs(__tmp);
+ 267:/usr/lib/avr/include/util/delay.h **** 
+ 268:/usr/lib/avr/include/util/delay.h **** 	#elif defined(__DELAY_ROUND_CLOSEST__)
+ 269:/usr/lib/avr/include/util/delay.h **** 		__ticks_dc = (uint32_t)(fabs(__tmp)+0.5);
+ 270:/usr/lib/avr/include/util/delay.h **** 
+ 271:/usr/lib/avr/include/util/delay.h **** 	#else
+ 272:/usr/lib/avr/include/util/delay.h **** 		//round up by default
+ 273:/usr/lib/avr/include/util/delay.h **** 		__ticks_dc = (uint32_t)(ceil(fabs(__tmp)));
+ 274:/usr/lib/avr/include/util/delay.h **** 	#endif
+ 275:/usr/lib/avr/include/util/delay.h **** 
+ 276:/usr/lib/avr/include/util/delay.h **** 	__builtin_avr_delay_cycles(__ticks_dc);
+ 1089               		.loc 2 276 0
+ 1090 03ba 87E5      		ldi r24,lo8(599)
+ 1091 03bc 92E0      		ldi r25,hi8(599)
+ 1092 03be 0197      	1:	sbiw r24,1
+ 1093 03c0 01F4      		brne 1b
+ 1094 03c2 00C0      		rjmp .
+ 1095 03c4 0000      		nop
+ 1096               	.LVL121:
+ 1097               	.LBE35:
+ 1098               	.LBE34:
+ 304:main.c        ****     LCD_SendCommand(0x02);  // Set to 4-bit mode
+ 1099               		.loc 1 304 0
+ 1100 03c6 83E0      		ldi r24,lo8(3)
+ 1101 03c8 0E94 0000 		call LCD_SendCommand
+ 1102               	.LVL122:
+ 305:main.c        ****     LCD_SendCommand(0x28);  // Function set: 4-bit, 2 lines, 5x8 dots
+ 1103               		.loc 1 305 0
+ 1104 03cc 82E0      		ldi r24,lo8(2)
+ 1105 03ce 0E94 0000 		call LCD_SendCommand
+ 1106               	.LVL123:
+ 306:main.c        ****     LCD_SendCommand(0x0C);  // Display ON, cursor OFF, blink OFF
+ 1107               		.loc 1 306 0
+ 1108 03d2 88E2      		ldi r24,lo8(40)
+ 1109 03d4 0E94 0000 		call LCD_SendCommand
+ 1110               	.LVL124:
+ 307:main.c        ****     LCD_SendCommand(0x06);  // Entry mode set: increment automatically, no shift
+ 1111               		.loc 1 307 0
+ 1112 03d8 8CE0      		ldi r24,lo8(12)
+ 1113 03da 0E94 0000 		call LCD_SendCommand
+ 1114               	.LVL125:
+ 308:main.c        ****     LCD_SendCommand(0x01);  // Clear display
+ 1115               		.loc 1 308 0
+ 1116 03de 86E0      		ldi r24,lo8(6)
+ 1117 03e0 0E94 0000 		call LCD_SendCommand
+ 1118               	.LVL126:
+ 309:main.c        ****     _delay_ms(2);  // Delay after clearing display
+ 1119               		.loc 1 309 0
+ 1120 03e4 81E0      		ldi r24,lo8(1)
+ 1121 03e6 0E94 0000 		call LCD_SendCommand
+ 1122               	.LVL127:
+ 1123               	.LBB36:
+ 1124               	.LBB37:
+ 187:/usr/lib/avr/include/util/delay.h **** 
+ 1125               		.loc 2 187 0
+ 1126 03ea 8FE3      		ldi r24,lo8(7999)
+ 1127 03ec 9FE1      		ldi r25,hi8(7999)
+ 1128 03ee 0197      	1:	sbiw r24,1
+ 1129 03f0 01F4      		brne 1b
+ 1130 03f2 00C0      		rjmp .
+ 1131 03f4 0000      		nop
+ 1132               	.LVL128:
+ 1133               	/* epilogue start */
+ 1134               	.LBE37:
+ 1135               	.LBE36:
+ 311:main.c        **** 
+ 1136               		.loc 1 311 0
+ 1137 03f6 0895      		ret
+ 1138               		.cfi_endproc
+ 1139               	.LFE29:
+ 1141               	.global	LCD_SendData
+ 1143               	LCD_SendData:
+ 1144               	.LFB31:
+ 324:main.c        **** 
+ 325:main.c        **** // Send data to the LCD
+ 326:main.c        **** void LCD_SendData(uint8_t data) {
+ 1145               		.loc 1 326 0
+ 1146               		.cfi_startproc
+ 1147               	.LVL129:
+ 1148 03f8 1F93      		push r17
+ 1149               	.LCFI38:
+ 1150               		.cfi_def_cfa_offset 3
+ 1151               		.cfi_offset 17, -2
+ 1152 03fa CF93      		push r28
+ 1153               	.LCFI39:
+ 1154               		.cfi_def_cfa_offset 4
+ 1155               		.cfi_offset 28, -3
+ 1156 03fc DF93      		push r29
+ 1157               	.LCFI40:
+ 1158               		.cfi_def_cfa_offset 5
+ 1159               		.cfi_offset 29, -4
+ 1160               	/* prologue: function */
+ 1161               	/* frame size = 0 */
+ 1162               	/* stack size = 3 */
+ 1163               	.L__stack_usage = 3
+ 1164 03fe C82F      		mov r28,r24
+ 327:main.c        ****     i2c_start(LCD_ADDR << 1);
+ 1165               		.loc 1 327 0
+ 1166 0400 8EE4      		ldi r24,lo8(78)
+ 1167               	.LVL130:
+ 1168 0402 0E94 0000 		call i2c_start
+ 1169               	.LVL131:
+ 328:main.c        ****     i2c_write((data & 0xF0) | 0x09);  // Send high nibble
+ 1170               		.loc 1 328 0
+ 1171 0406 1C2F      		mov r17,r28
+ 1172 0408 107F      		andi r17,lo8(-16)
+ 1173 040a D12F      		mov r29,r17
+ 1174 040c D960      		ori r29,lo8(9)
+ 1175 040e 8D2F      		mov r24,r29
+ 1176 0410 0E94 0000 		call i2c_write
+ 1177               	.LVL132:
+ 329:main.c        ****     i2c_write((data & 0xF0) | 0x0D);  // Enable bit high
+ 1178               		.loc 1 329 0
+ 1179 0414 812F      		mov r24,r17
+ 1180 0416 8D60      		ori r24,lo8(13)
+ 1181 0418 0E94 0000 		call i2c_write
+ 1182               	.LVL133:
+ 330:main.c        ****     i2c_write((data & 0xF0) | 0x09);  // Enable bit low
+ 1183               		.loc 1 330 0
+ 1184 041c 8D2F      		mov r24,r29
+ 1185 041e 0E94 0000 		call i2c_write
+ 1186               	.LVL134:
+ 331:main.c        ****     i2c_write((data << 4) | 0x09);    // Send low nibble
+ 1187               		.loc 1 331 0
+ 1188 0422 80E1      		ldi r24,lo8(16)
+ 1189 0424 C89F      		mul r28,r24
+ 1190 0426 E001      		movw r28,r0
+ 1191 0428 1124      		clr __zero_reg__
+ 1192               	.LVL135:
+ 1193 042a DC2F      		mov r29,r28
+ 1194 042c D960      		ori r29,lo8(9)
+ 1195 042e 8D2F      		mov r24,r29
+ 1196 0430 0E94 0000 		call i2c_write
+ 1197               	.LVL136:
+ 332:main.c        ****     i2c_write((data << 4) | 0x0D);    // Enable bit high
+ 1198               		.loc 1 332 0
+ 1199 0434 8C2F      		mov r24,r28
+ 1200 0436 8D60      		ori r24,lo8(13)
+ 1201 0438 0E94 0000 		call i2c_write
+ 1202               	.LVL137:
+ 333:main.c        ****     i2c_write((data << 4) | 0x09);    // Enable bit low
+ 1203               		.loc 1 333 0
+ 1204 043c 8D2F      		mov r24,r29
+ 1205 043e 0E94 0000 		call i2c_write
+ 1206               	.LVL138:
+ 1207               	/* epilogue start */
+ 334:main.c        ****     i2c_stop();
+ 335:main.c        **** }
+ 1208               		.loc 1 335 0
+ 1209 0442 DF91      		pop r29
+ 1210 0444 CF91      		pop r28
+ 1211 0446 1F91      		pop r17
+ 334:main.c        ****     i2c_stop();
+ 1212               		.loc 1 334 0
+ 1213 0448 0C94 0000 		jmp i2c_stop
+ 1214               	.LVL139:
+ 1215               		.cfi_endproc
+ 1216               	.LFE31:
+ 1218               	.global	LCD_Print
+ 1220               	LCD_Print:
+ 1221               	.LFB32:
+ 336:main.c        **** 
+ 337:main.c        **** // Print a string on the LCD
+ 338:main.c        **** void LCD_Print(char *str) {
+ 1222               		.loc 1 338 0
+ 1223               		.cfi_startproc
+ 1224               	.LVL140:
+ 1225 044c CF93      		push r28
+ 1226               	.LCFI41:
+ 1227               		.cfi_def_cfa_offset 3
+ 1228               		.cfi_offset 28, -2
+ 1229 044e DF93      		push r29
+ 1230               	.LCFI42:
+ 1231               		.cfi_def_cfa_offset 4
+ 1232               		.cfi_offset 29, -3
+ 1233               	/* prologue: function */
+ 1234               	/* frame size = 0 */
+ 1235               	/* stack size = 2 */
+ 1236               	.L__stack_usage = 2
+ 1237 0450 EC01      		movw r28,r24
+ 1238               	.LVL141:
+ 1239               	.L67:
+ 339:main.c        ****     while (*str) {
+ 1240               		.loc 1 339 0
+ 1241 0452 8991      		ld r24,Y+
+ 1242               	.LVL142:
+ 1243 0454 8111      		cpse r24,__zero_reg__
+ 1244 0456 00C0      		rjmp .L68
+ 1245               	/* epilogue start */
+ 340:main.c        ****         LCD_SendData(*str++);
+ 341:main.c        ****     }
+ 342:main.c        **** }
+ 1246               		.loc 1 342 0
+ 1247 0458 DF91      		pop r29
+ 1248 045a CF91      		pop r28
+ 1249               	.LVL143:
+ 1250 045c 0895      		ret
+ 1251               	.LVL144:
+ 1252               	.L68:
+ 340:main.c        ****         LCD_SendData(*str++);
+ 1253               		.loc 1 340 0
+ 1254 045e 0E94 0000 		call LCD_SendData
+ 1255               	.LVL145:
+ 1256 0462 00C0      		rjmp .L67
+ 1257               		.cfi_endproc
+ 1258               	.LFE32:
+ 1260               	.global	LCD_SetPosition
+ 1262               	LCD_SetPosition:
+ 1263               	.LFB33:
+ 343:main.c        **** 
+ 344:main.c        **** // Set cursor position on the LCD
+ 345:main.c        **** void LCD_SetPosition(uint8_t row, uint8_t col) {
+ 1264               		.loc 1 345 0
+ 1265               		.cfi_startproc
+ 1266               	.LVL146:
+ 1267               	/* prologue: function */
+ 1268               	/* frame size = 0 */
+ 1269               	/* stack size = 0 */
+ 1270               	.L__stack_usage = 0
+ 346:main.c        ****     uint8_t pos = (row == 0) ? (0x80 + col) : (0xC0 + col);
+ 1271               		.loc 1 346 0
+ 1272 0464 8111      		cpse r24,__zero_reg__
+ 1273 0466 00C0      		rjmp .L70
+ 1274               		.loc 1 346 0 is_stmt 0 discriminator 1
+ 1275 0468 80E8      		ldi r24,lo8(-128)
+ 1276               	.LVL147:
+ 1277               	.L72:
+ 1278               		.loc 1 346 0 discriminator 2
+ 1279 046a 860F      		add r24,r22
+ 1280               	.LVL148:
+ 347:main.c        ****     LCD_SendCommand(pos);
+ 1281               		.loc 1 347 0 is_stmt 1 discriminator 2
+ 1282 046c 0C94 0000 		jmp LCD_SendCommand
+ 1283               	.LVL149:
+ 1284               	.L70:
+ 346:main.c        ****     uint8_t pos = (row == 0) ? (0x80 + col) : (0xC0 + col);
+ 1285               		.loc 1 346 0 discriminator 2
+ 1286 0470 80EC      		ldi r24,lo8(-64)
+ 1287               	.LVL150:
+ 1288 0472 00C0      		rjmp .L72
+ 1289               		.cfi_endproc
+ 1290               	.LFE33:
+ 1292               	.global	LCD_Clear
+ 1294               	LCD_Clear:
+ 1295               	.LFB34:
+ 348:main.c        **** }
+ 349:main.c        **** 
+ 350:main.c        **** // Clear the LCD display
+ 351:main.c        **** void LCD_Clear(void) {
+ 1296               		.loc 1 351 0
+ 1297               		.cfi_startproc
+ 1298               	/* prologue: function */
+ 1299               	/* frame size = 0 */
+ 1300               	/* stack size = 0 */
+ 1301               	.L__stack_usage = 0
+ 352:main.c        ****     LCD_SendCommand(0x01);  // Send clear display command
+ 1302               		.loc 1 352 0
+ 1303 0474 81E0      		ldi r24,lo8(1)
+ 1304 0476 0E94 0000 		call LCD_SendCommand
+ 1305               	.LVL151:
+ 1306               	.LBB38:
+ 1307               	.LBB39:
+ 187:/usr/lib/avr/include/util/delay.h **** 
+ 1308               		.loc 2 187 0
+ 1309 047a 8FE3      		ldi r24,lo8(7999)
+ 1310 047c 9FE1      		ldi r25,hi8(7999)
+ 1311 047e 0197      	1:	sbiw r24,1
+ 1312 0480 01F4      		brne 1b
+ 1313 0482 00C0      		rjmp .
+ 1314 0484 0000      		nop
+ 1315               	.LVL152:
+ 1316               	/* epilogue start */
+ 1317               	.LBE39:
+ 1318               	.LBE38:
+ 353:main.c        ****     _delay_ms(2);           // Wait for the command to execute
+ 354:main.c        **** }
+ 1319               		.loc 1 354 0
+ 1320 0486 0895      		ret
+ 1321               		.cfi_endproc
+ 1322               	.LFE34:
+ 1324               		.section	.rodata.str1.1,"aMS",@progbits,1
+ 1325               	.LC0:
+ 1326 0000 2530 3258 		.string	"%02X%02X%02X%02X%02X"
+ 1326      2530 3258 
+ 1326      2530 3258 
+ 1326      2530 3258 
+ 1326      2530 3258 
+ 1327               	.LC1:
+ 1328 0015 4164 6D69 		.string	"Admin UID:"
+ 1328      6E20 5549 
+ 1328      443A 00
+ 1329               		.text
+ 1330               	.global	displayUID
+ 1332               	displayUID:
+ 1333               	.LFB11:
+  70:main.c        ****     char uidStr[17];  // String to hold UID
+ 1334               		.loc 1 70 0
+ 1335               		.cfi_startproc
+ 1336               	.LVL153:
+ 1337 0488 0F93      		push r16
+ 1338               	.LCFI43:
+ 1339               		.cfi_def_cfa_offset 3
+ 1340               		.cfi_offset 16, -2
+ 1341 048a 1F93      		push r17
+ 1342               	.LCFI44:
+ 1343               		.cfi_def_cfa_offset 4
+ 1344               		.cfi_offset 17, -3
+ 1345 048c CF93      		push r28
+ 1346               	.LCFI45:
+ 1347               		.cfi_def_cfa_offset 5
+ 1348               		.cfi_offset 28, -4
+ 1349 048e DF93      		push r29
+ 1350               	.LCFI46:
+ 1351               		.cfi_def_cfa_offset 6
+ 1352               		.cfi_offset 29, -5
+ 1353 0490 CDB7      		in r28,__SP_L__
+ 1354 0492 DEB7      		in r29,__SP_H__
+ 1355               	.LCFI47:
+ 1356               		.cfi_def_cfa_register 28
+ 1357 0494 6197      		sbiw r28,17
+ 1358               	.LCFI48:
+ 1359               		.cfi_def_cfa_offset 23
+ 1360 0496 0FB6      		in __tmp_reg__,__SREG__
+ 1361 0498 F894      		cli
+ 1362 049a DEBF      		out __SP_H__,r29
+ 1363 049c 0FBE      		out __SREG__,__tmp_reg__
+ 1364 049e CDBF      		out __SP_L__,r28
+ 1365               	/* prologue: function */
+ 1366               	/* frame size = 17 */
+ 1367               	/* stack size = 21 */
+ 1368               	.L__stack_usage = 21
+ 1369 04a0 FC01      		movw r30,r24
+  72:main.c        ****     LCD_Clear();
+ 1370               		.loc 1 72 0
+ 1371 04a2 8481      		ldd r24,Z+4
+ 1372               	.LVL154:
+ 1373 04a4 1F92      		push __zero_reg__
+ 1374 04a6 8F93      		push r24
+ 1375 04a8 8381      		ldd r24,Z+3
+ 1376 04aa 1F92      		push __zero_reg__
+ 1377 04ac 8F93      		push r24
+ 1378 04ae 8281      		ldd r24,Z+2
+ 1379 04b0 1F92      		push __zero_reg__
+ 1380 04b2 8F93      		push r24
+ 1381 04b4 8181      		ldd r24,Z+1
+ 1382 04b6 1F92      		push __zero_reg__
+ 1383 04b8 8F93      		push r24
+ 1384 04ba 8081      		ld r24,Z
+ 1385 04bc 1F92      		push __zero_reg__
+ 1386 04be 8F93      		push r24
+ 1387 04c0 80E0      		ldi r24,lo8(.LC0)
+ 1388 04c2 90E0      		ldi r25,hi8(.LC0)
+ 1389 04c4 9F93      		push r25
+ 1390 04c6 8F93      		push r24
+ 1391 04c8 8E01      		movw r16,r28
+ 1392 04ca 0F5F      		subi r16,-1
+ 1393 04cc 1F4F      		sbci r17,-1
+ 1394 04ce 1F93      		push r17
+ 1395 04d0 0F93      		push r16
+ 1396 04d2 0E94 0000 		call sprintf
+ 1397               	.LVL155:
+  73:main.c        ****     LCD_SetPosition(0, 0);
+ 1398               		.loc 1 73 0
+ 1399 04d6 0E94 0000 		call LCD_Clear
+ 1400               	.LVL156:
+ 1401               	.LBB40:
+ 1402               	.LBB41:
+ 347:main.c        **** }
+ 1403               		.loc 1 347 0
+ 1404 04da 80E8      		ldi r24,lo8(-128)
+ 1405 04dc 0E94 0000 		call LCD_SendCommand
+ 1406               	.LVL157:
+ 1407               	.LBE41:
+ 1408               	.LBE40:
+  75:main.c        ****     LCD_SetPosition(1, 0);
+ 1409               		.loc 1 75 0
+ 1410 04e0 80E0      		ldi r24,lo8(.LC1)
+ 1411 04e2 90E0      		ldi r25,hi8(.LC1)
+ 1412 04e4 0E94 0000 		call LCD_Print
+ 1413               	.LVL158:
+ 1414               	.LBB42:
+ 1415               	.LBB43:
+ 347:main.c        **** }
+ 1416               		.loc 1 347 0
+ 1417 04e8 80EC      		ldi r24,lo8(-64)
+ 1418 04ea 0E94 0000 		call LCD_SendCommand
+ 1419               	.LVL159:
+ 1420               	.LBE43:
+ 1421               	.LBE42:
+  77:main.c        ****     _delay_ms(2000);    // Wait for 2 seconds
+ 1422               		.loc 1 77 0
+ 1423 04ee C801      		movw r24,r16
+ 1424 04f0 0E94 0000 		call LCD_Print
+ 1425               	.LVL160:
+ 1426               	.LBB44:
+ 1427               	.LBB45:
+ 187:/usr/lib/avr/include/util/delay.h **** 
+ 1428               		.loc 2 187 0
+ 1429 04f4 2FEF      		ldi r18,lo8(6399999)
+ 1430 04f6 87EA      		ldi r24,hi8(6399999)
+ 1431 04f8 91E6      		ldi r25,hlo8(6399999)
+ 1432 04fa 2150      	1:	subi r18,1
+ 1433 04fc 8040      		sbci r24,0
+ 1434 04fe 9040      		sbci r25,0
+ 1435 0500 01F4      		brne 1b
+ 1436 0502 00C0      		rjmp .
+ 1437 0504 0000      		nop
+ 1438               	.LVL161:
+ 1439               	.LBE45:
+ 1440               	.LBE44:
+  79:main.c        **** 
+ 1441               		.loc 1 79 0
+ 1442 0506 0FB6      		in __tmp_reg__,__SREG__
+ 1443 0508 F894      		cli
+ 1444 050a DEBF      		out __SP_H__,r29
+ 1445 050c 0FBE      		out __SREG__,__tmp_reg__
+ 1446 050e CDBF      		out __SP_L__,r28
+ 1447               	/* epilogue start */
+ 1448 0510 6196      		adiw r28,17
+ 1449 0512 0FB6      		in __tmp_reg__,__SREG__
+ 1450 0514 F894      		cli
+ 1451 0516 DEBF      		out __SP_H__,r29
+ 1452 0518 0FBE      		out __SREG__,__tmp_reg__
+ 1453 051a CDBF      		out __SP_L__,r28
+ 1454 051c DF91      		pop r29
+ 1455 051e CF91      		pop r28
+ 1456 0520 1F91      		pop r17
+ 1457 0522 0F91      		pop r16
+ 1458 0524 0895      		ret
+ 1459               		.cfi_endproc
+ 1460               	.LFE11:
+ 1462               		.section	.rodata.str1.1
+ 1463               	.LC2:
+ 1464 0020 5461 7020 		.string	"Tap Admin Card"
+ 1464      4164 6D69 
+ 1464      6E20 4361 
+ 1464      7264 00
+ 1465               		.section	.text.startup,"ax",@progbits
+ 1466               	.global	main
+ 1468               	main:
+ 1469               	.LFB35:
+ 355:main.c        **** 
+ 356:main.c        **** int main(void) {
+ 1470               		.loc 1 356 0
+ 1471               		.cfi_startproc
+ 1472 0000 CF93      		push r28
+ 1473               	.LCFI49:
+ 1474               		.cfi_def_cfa_offset 3
+ 1475               		.cfi_offset 28, -2
+ 1476 0002 DF93      		push r29
+ 1477               	.LCFI50:
+ 1478               		.cfi_def_cfa_offset 4
+ 1479               		.cfi_offset 29, -3
+ 1480 0004 00D0      		rcall .
+ 1481 0006 00D0      		rcall .
+ 1482 0008 1F92      		push __zero_reg__
+ 1483               	.LCFI51:
+ 1484               		.cfi_def_cfa_offset 9
+ 1485 000a CDB7      		in r28,__SP_L__
+ 1486 000c DEB7      		in r29,__SP_H__
+ 1487               	.LCFI52:
+ 1488               		.cfi_def_cfa_register 28
+ 1489               	/* prologue: function */
+ 1490               	/* frame size = 5 */
+ 1491               	/* stack size = 7 */
+ 1492               	.L__stack_usage = 7
+ 357:main.c        ****     uint8_t serial[5];
+ 358:main.c        ****     uint8_t status;
+ 359:main.c        **** 
+ 360:main.c        ****     // Initialization
+ 361:main.c        ****     initSPI();
+ 1493               		.loc 1 361 0
+ 1494 000e 0E94 0000 		call initSPI
+ 1495               	.LVL162:
+ 362:main.c        ****     MFRC522_init();
+ 1496               		.loc 1 362 0
+ 1497 0012 0E94 0000 		call MFRC522_init
+ 1498               	.LVL163:
+ 363:main.c        ****     LCD_Init();
+ 1499               		.loc 1 363 0
+ 1500 0016 0E94 0000 		call LCD_Init
+ 1501               	.LVL164:
+ 364:main.c        ****     i2c_init();
+ 1502               		.loc 1 364 0
+ 1503 001a 0E94 0000 		call i2c_init
+ 1504               	.LVL165:
+ 1505               	.L78:
+ 365:main.c        **** 
+ 366:main.c        ****     // Main loop
+ 367:main.c        ****     while (1) {
+ 368:main.c        ****         LCD_Clear();
+ 1506               		.loc 1 368 0
+ 1507 001e 0E94 0000 		call LCD_Clear
+ 1508               	.LVL166:
+ 1509               	.LBB46:
+ 1510               	.LBB47:
+ 347:main.c        **** }
+ 1511               		.loc 1 347 0
+ 1512 0022 80E8      		ldi r24,lo8(-128)
+ 1513 0024 0E94 0000 		call LCD_SendCommand
+ 1514               	.LVL167:
+ 1515               	.LBE47:
+ 1516               	.LBE46:
+ 369:main.c        ****         LCD_SetPosition(0, 0);
+ 370:main.c        ****         LCD_Print("Tap Admin Card");
+ 1517               		.loc 1 370 0
+ 1518 0028 80E0      		ldi r24,lo8(.LC2)
+ 1519 002a 90E0      		ldi r25,hi8(.LC2)
+ 1520 002c 0E94 0000 		call LCD_Print
+ 1521               	.LVL168:
+ 1522               	.L76:
+ 371:main.c        **** 
+ 372:main.c        ****         // Wait for a card to be tapped
+ 373:main.c        ****         while (1) {
+ 374:main.c        ****             status = MFRC522_request(0x26, serial);  // Request card
+ 1523               		.loc 1 374 0
+ 1524 0030 BE01      		movw r22,r28
+ 1525 0032 6F5F      		subi r22,-1
+ 1526 0034 7F4F      		sbci r23,-1
+ 1527 0036 86E2      		ldi r24,lo8(38)
+ 1528 0038 0E94 0000 		call MFRC522_request
+ 1529               	.LVL169:
+ 375:main.c        ****             if (status == MI_OK && MFRC522_anticoll(serial) == MI_OK) {
+ 1530               		.loc 1 375 0
+ 1531 003c 8111      		cpse r24,__zero_reg__
+ 1532 003e 00C0      		rjmp .L76
+ 1533               		.loc 1 375 0 is_stmt 0 discriminator 1
+ 1534 0040 CE01      		movw r24,r28
+ 1535               	.LVL170:
+ 1536 0042 0196      		adiw r24,1
+ 1537 0044 0E94 0000 		call MFRC522_anticoll
+ 1538               	.LVL171:
+ 1539 0048 8111      		cpse r24,__zero_reg__
+ 1540 004a 00C0      		rjmp .L76
+ 376:main.c        ****                 // Display the tapped card's UID on the LCD
+ 377:main.c        ****                 displayUID(serial);
+ 1541               		.loc 1 377 0 is_stmt 1
+ 1542 004c CE01      		movw r24,r28
+ 1543 004e 0196      		adiw r24,1
+ 1544 0050 0E94 0000 		call displayUID
+ 1545               	.LVL172:
+ 1546               	.LBB48:
+ 1547               	.LBB49:
+ 187:/usr/lib/avr/include/util/delay.h **** 
+ 1548               		.loc 2 187 0
+ 1549 0054 2FEF      		ldi r18,lo8(6399999)
+ 1550 0056 87EA      		ldi r24,hi8(6399999)
+ 1551 0058 91E6      		ldi r25,hlo8(6399999)
+ 1552 005a 2150      	1:	subi r18,1
+ 1553 005c 8040      		sbci r24,0
+ 1554 005e 9040      		sbci r25,0
+ 1555 0060 01F4      		brne 1b
+ 1556 0062 00C0      		rjmp .
+ 1557 0064 0000      		nop
+ 1558 0066 00C0      		rjmp .L78
+ 1559               	.LBE49:
+ 1560               	.LBE48:
+ 1561               		.cfi_endproc
+ 1562               	.LFE35:
+ 1564               	.global	storedIDs
+ 1565               		.section	.eeprom,"aw",@progbits
+ 1568               	storedIDs:
+ 1569 0000 0000 0000 		.zero	100
+ 1569      0000 0000 
+ 1569      0000 0000 
+ 1569      0000 0000 
+ 1569      0000 0000 
+ 1570               	.global	userCount
+ 1573               	userCount:
+ 1574 0064 00        		.zero	1
+ 1575               	.global	adminID
+ 1576               		.data
+ 1579               	adminID:
+ 1580 0000 DE        		.byte	-34
+ 1581 0001 AD        		.byte	-83
+ 1582 0002 BE        		.byte	-66
+ 1583 0003 EF        		.byte	-17
+ 1584 0004 01        		.byte	1
+ 1585               		.text
+ 1586               	.Letext0:
+ 1587               		.file 3 "/usr/lib/avr/include/stdint.h"
+ 1588               		.file 4 "/usr/lib/gcc/avr/7.3.0/include/stddef.h"
+ 1589               		.file 5 "/usr/lib/avr/include/stdlib.h"
+ 1590               		.file 6 "/usr/lib/avr/include/stdio.h"
+DEFINED SYMBOLS
+                            *ABS*:0000000000000000 main.c
+     /tmp/ccIeW9Uo.s:2      *ABS*:000000000000003e __SP_H__
+     /tmp/ccIeW9Uo.s:3      *ABS*:000000000000003d __SP_L__
+     /tmp/ccIeW9Uo.s:4      *ABS*:000000000000003f __SREG__
+     /tmp/ccIeW9Uo.s:5      *ABS*:0000000000000000 __tmp_reg__
+     /tmp/ccIeW9Uo.s:6      *ABS*:0000000000000001 __zero_reg__
+     /tmp/ccIeW9Uo.s:12     .text:0000000000000000 initSPI
+     /tmp/ccIeW9Uo.s:35     .text:000000000000000a SPI_send
+     /tmp/ccIeW9Uo.s:59     .text:0000000000000014 SPI_receive
+     /tmp/ccIeW9Uo.s:86     .text:0000000000000024 MFRC522_write
+     /tmp/ccIeW9Uo.s:124    .text:000000000000003e MFRC522_reset
+     /tmp/ccIeW9Uo.s:142    .text:0000000000000046 MFRC522_read
+     /tmp/ccIeW9Uo.s:173    .text:000000000000005a MFRC522_antennaOn
+     /tmp/ccIeW9Uo.s:205    .text:0000000000000072 MFRC522_init
+     /tmp/ccIeW9Uo.s:254    .text:00000000000000aa MFRC522_setBitMask
+     /tmp/ccIeW9Uo.s:295    .text:00000000000000c4 MFRC522_clearBitMask
+     /tmp/ccIeW9Uo.s:338    .text:00000000000000e0 MFRC522_toCard
+     /tmp/ccIeW9Uo.s:649    .text:0000000000000232 MFRC522_request
+     /tmp/ccIeW9Uo.s:740    .text:0000000000000282 MFRC522_anticoll
+     /tmp/ccIeW9Uo.s:854    .text:00000000000002ea i2c_init
+     /tmp/ccIeW9Uo.s:875    .text:00000000000002f6 i2c_start
+     /tmp/ccIeW9Uo.s:912    .text:0000000000000318 i2c_stop
+     /tmp/ccIeW9Uo.s:936    .text:0000000000000328 i2c_write
+     /tmp/ccIeW9Uo.s:965    .text:000000000000033c LCD_SendCommand
+     /tmp/ccIeW9Uo.s:1042   .text:0000000000000390 LCD_Init
+     /tmp/ccIeW9Uo.s:1143   .text:00000000000003f8 LCD_SendData
+     /tmp/ccIeW9Uo.s:1220   .text:000000000000044c LCD_Print
+     /tmp/ccIeW9Uo.s:1262   .text:0000000000000464 LCD_SetPosition
+     /tmp/ccIeW9Uo.s:1294   .text:0000000000000474 LCD_Clear
+     /tmp/ccIeW9Uo.s:1332   .text:0000000000000488 displayUID
+     /tmp/ccIeW9Uo.s:1468   .text.startup:0000000000000000 main
+     /tmp/ccIeW9Uo.s:1568   .eeprom:0000000000000000 storedIDs
+     /tmp/ccIeW9Uo.s:1573   .eeprom:0000000000000064 userCount
+     /tmp/ccIeW9Uo.s:1579   .data:0000000000000000 adminID
+
+UNDEFINED SYMBOLS
+sprintf
+__do_copy_data
