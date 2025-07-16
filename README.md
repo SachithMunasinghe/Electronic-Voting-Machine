@@ -40,7 +40,7 @@ module. The 16x2 LCD display is connected to the I2C module.
 https://github.com/user-attachments/assets/3c53fb6d-8a31-429a-b386-7d6e71e82732
 
 * ### User guide of the electronic voting machine -
-[User_guide.pdf](https://github.com/user-attachments/files/20238428/User_guide.pdf)
+[User_guide.pdf](https://github.com/user-attachments/files/21251236/User_guide.pdf)
 
 > [!TIP]
 > To find out the admin ID number of the RFID card, the admin ID folder can be used and uploaded into the ATmega328p and then it will display the admin ID number on the LCD display. The main code admin ID should be replaced with your admin ID card number.
