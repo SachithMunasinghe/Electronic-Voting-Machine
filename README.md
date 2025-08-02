@@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/3c53fb6d-8a31-429a-b386-7d6e71e82732
 [User_guide.pdf](https://github.com/user-attachments/files/21251236/User_guide.pdf)
 
 > [!TIP]
-> To find out the admin ID number of the RFID card, the admin ID folder can be used and uploaded into the ATmega328p and then it will display the admin ID number on the LCD display. The main code admin ID should be replaced with your admin ID card number.
+> To find out the admin ID number of the RFID card, the admin ID folder can be used and uploaded into the ATmega328p and then it will display the admin ID number on the LCD display. The main code admin ID should be replaced with your admin ID card unique number.
 
 * ### Data sheet of the ATmega328p - 
 [https://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-7810-Automotive-Microcontrollers-ATmega328P_Datasheet.pdf](https://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-7810-Automotive-Microcontrollers-ATmega328P_Datasheet.pdf).
